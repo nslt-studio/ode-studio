@@ -1,0 +1,19 @@
+{
+  "name": "ode-studio",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:local": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "gsap": "^3.15.0",
+    "swup": "^4.10.0"
+  },
+  "devDependencies": {
+    "cloudflared": "^0.7.3",
+    "vite": "^8.3.3"
+  }
+}
