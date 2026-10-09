@@ -20,6 +20,9 @@ const ANGLE = 20
 const OPACITIES = [1, 0.5, 0.1]
 // Rayon de la roue, en fraction de la hauteur d'écran
 const RADIUS = 0.75
+// .line : largeur minimale (fraction de sa largeur pleine) quand la roue est à mi-chemin entre deux
+// items ; elle revient linéairement à 100 % quand un item est pile au centre
+const LINE_MIN = 0.75
 // Distance de glisser (px) pour passer d'un item au suivant
 const DRAG = 400
 // Espace minimum (px) entre deux items, quelle que soit la taille de la fenêtre
@@ -42,6 +45,7 @@ export function init(container) {
   if (!items.length) return
 
   const n = items.length
+  const line = container.querySelector('.line')
 
   // Médias sortis des items : un élément en position: fixed dans un parent transformé (les items
   // tournent et se déplacent) suivrait ce parent au lieu de rester calé sur l'écran. Ils vont dans un
@@ -96,6 +100,12 @@ export function init(container) {
 
   function render() {
     const p = progress()
+
+    // Écart à l'item le plus proche : 0 pile dessus, 0.5 à mi-chemin -> largeur 100 % -> LINE_MIN
+    if (line) {
+      const offset = Math.abs(p - Math.round(p)) * 2
+      line.style.width = `${(1 - (1 - LINE_MIN) * offset) * 100}%`
+    }
 
     items.forEach((item, i) => {
       const rel = n > 1 ? wrap(i - p) : 0

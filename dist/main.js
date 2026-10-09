@@ -2879,26 +2879,26 @@ var dc = 20, fc = [
 function xc(e) {
 	let t = e.querySelector(".selected-list"), n = [...t?.querySelectorAll(".selected-item") ?? []];
 	if (!n.length) return;
-	let r = n.length, i = document.createElement("div");
-	i.className = "selected-medias", Object.assign(i.style, {
+	let r = n.length, i = e.querySelector(".line"), a = document.createElement("div");
+	a.className = "selected-medias", Object.assign(a.style, {
 		position: "relative",
 		zIndex: "0"
 	});
-	let a = n.map((e) => {
+	let o = n.map((e) => {
 		let t = e.querySelector(".selected-media");
-		return t && (t.style.transition = "none", i.append(t)), t;
+		return t && (t.style.transition = "none", a.append(t)), t;
 	});
-	e.prepend(i);
-	let o = a.map((e) => [...e?.querySelectorAll("video") ?? []]);
-	o.flat().forEach((e) => {
+	e.prepend(a);
+	let s = o.map((e) => [...e?.querySelectorAll("video") ?? []]);
+	s.flat().forEach((e) => {
 		e.autoplay = !1, e.pause();
 	});
-	let s = document.createElement("div"), c = 0, l = -1;
-	function u() {
+	let c = document.createElement("div"), l = 0, u = -1;
+	function d() {
 		let e = Math.max(...n.map((e) => e.offsetHeight));
-		c = Math.max(innerHeight * pc, (e + hc) / Math.sin(dc * Math.PI / 180));
+		l = Math.max(innerHeight * pc, (e + hc) / Math.sin(dc * Math.PI / 180));
 	}
-	let d = () => -Z.getProperty(s, "y") / mc, f = Z.utils.wrap(-r / 2, r / 2);
+	let f = () => -Z.getProperty(c, "y") / mc, p = Z.utils.wrap(-r / 2, r / 2);
 	Object.assign(t.style, {
 		position: "relative",
 		overflow: "hidden"
@@ -2911,88 +2911,92 @@ function xc(e) {
 			transition: "opacity 300ms var(--easing)"
 		}), e.querySelectorAll("img").forEach((e) => e.draggable = !1);
 	});
-	function p() {
-		let t = d();
+	function m() {
+		let t = f();
+		if (i) {
+			let e = Math.abs(t - Math.round(t)) * 2;
+			i.style.width = `${(1 - .25 * e) * 100}%`;
+		}
 		n.forEach((e, n) => {
-			let i = r > 1 ? f(n - t) : 0;
+			let i = r > 1 ? p(n - t) : 0;
 			if (Math.abs(i) > gc) {
 				e.style.visibility = "hidden";
 				return;
 			}
-			let a = i * dc * Math.PI / 180, o = c - c * Math.cos(a), s = c * Math.sin(a);
+			let a = i * dc * Math.PI / 180, o = l - l * Math.cos(a), s = l * Math.sin(a);
 			e.style.visibility = "", e.style.translate = `calc(-50% + ${o}px) calc(-50% + ${s}px)`, e.style.rotate = `${-i * dc}deg`;
 		});
-		let i = (Math.round(t) % r + r) % r;
-		i !== l && (l !== -1 && lc(), l = i, n.forEach((e, t) => {
-			e.classList.toggle("active", t === i);
-			let n = Math.abs(r > 1 ? Math.round(f(t - i)) : 0);
+		let a = (Math.round(t) % r + r) % r;
+		a !== u && (u !== -1 && lc(), u = a, n.forEach((e, t) => {
+			e.classList.toggle("active", t === a);
+			let n = Math.abs(r > 1 ? Math.round(p(t - a)) : 0);
 			e.style.opacity = fc[Math.min(n, fc.length - 1)];
-		}), a.forEach((e, t) => {
-			e && (e.style.opacity = t === i ? "1" : "");
-		}), o.forEach((e, t) => e.forEach((e) => t === i ? e.play().catch(() => {}) : e.pause())), e.dispatchEvent(new CustomEvent("selected:change", { detail: {
-			index: i,
-			item: n[i]
+		}), o.forEach((e, t) => {
+			e && (e.style.opacity = t === a ? "1" : "");
+		}), s.forEach((e, t) => e.forEach((e) => t === a ? e.play().catch(() => {}) : e.pause())), e.dispatchEvent(new CustomEvent("selected:change", { detail: {
+			index: a,
+			item: n[a]
 		} })));
 	}
-	function m(e) {
-		Z.to(s, {
-			y: -(Math.round(d()) + e) * mc,
+	function h(e) {
+		Z.to(c, {
+			y: -(Math.round(f()) + e) * mc,
 			duration: .6,
 			ease: "power3.out",
 			overwrite: !0,
-			onUpdate: p
+			onUpdate: m
 		});
 	}
-	let [h] = fo.create(s, {
+	let [g] = fo.create(c, {
 		trigger: t,
 		type: "y",
 		inertia: !0,
 		dragClickables: !0,
 		snap: { y: (e) => Math.round(e / mc) * mc },
-		onPress: () => Z.killTweensOf(s),
-		onDrag: p,
-		onThrowUpdate: p
-	}), g = 0, _ = null, v = () => /\b(about-open|is-loading)\b/.test(document.documentElement.className);
-	function y(e) {
-		if (v()) return;
+		onPress: () => Z.killTweensOf(c),
+		onDrag: m,
+		onThrowUpdate: m
+	}), _ = 0, v = null, y = () => /\b(about-open|is-loading)\b/.test(document.documentElement.className);
+	function b(e) {
+		if (y()) return;
 		e.preventDefault();
 		let t = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-		_ || (g = Z.getProperty(s, "y")), g -= t, Z.to(s, {
-			y: g,
+		v || (_ = Z.getProperty(c, "y")), _ -= t, Z.to(c, {
+			y: _,
 			duration: .4,
 			ease: "power2.out",
 			overwrite: !0,
-			onUpdate: p
-		}), clearTimeout(_), _ = setTimeout(() => {
-			_ = null, m(0);
+			onUpdate: m
+		}), clearTimeout(v), v = setTimeout(() => {
+			v = null, h(0);
 		}, 150);
 	}
-	function b(e) {
-		v() || ((e.key === "ArrowDown" || e.key === "ArrowRight") && m(1), (e.key === "ArrowUp" || e.key === "ArrowLeft") && m(-1));
-	}
 	function x(e) {
-		let t = e.target.closest(".selected-item"), r = n.indexOf(t);
-		r !== -1 && r !== l && (e.preventDefault(), e.stopPropagation(), m(Math.round(f(r - d()))));
+		y() || ((e.key === "ArrowDown" || e.key === "ArrowRight") && h(1), (e.key === "ArrowUp" || e.key === "ArrowLeft") && h(-1));
 	}
-	let S = null;
-	function C() {
-		cancelAnimationFrame(S), S = requestAnimationFrame(() => {
-			u(), p();
+	function S(e) {
+		let t = e.target.closest(".selected-item"), r = n.indexOf(t);
+		r !== -1 && r !== u && (e.preventDefault(), e.stopPropagation(), h(Math.round(p(r - f()))));
+	}
+	let C = null;
+	function w() {
+		cancelAnimationFrame(C), C = requestAnimationFrame(() => {
+			d(), m();
 		});
 	}
-	if (addEventListener("wheel", y, { passive: !1 }), addEventListener("keydown", b), addEventListener("resize", C), t.addEventListener("click", x, !0), u(), !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-		Z.set(s, { y: _c * mc });
-		let e = Z.to(s, {
+	if (addEventListener("wheel", b, { passive: !1 }), addEventListener("keydown", x), addEventListener("resize", w), t.addEventListener("click", S, !0), d(), !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+		Z.set(c, { y: _c * mc });
+		let e = Z.to(c, {
 			y: 0,
 			duration: vc,
 			ease: yc,
 			paused: !0,
-			onUpdate: p
+			onUpdate: m
 		});
 		rc(() => e.play());
 	}
-	p(), bc = () => {
-		o.flat().forEach((e) => e.pause()), cancelAnimationFrame(S), h.kill(), Z.killTweensOf(s), clearTimeout(_), removeEventListener("wheel", y), removeEventListener("keydown", b), removeEventListener("resize", C), t.removeEventListener("click", x, !0);
+	m(), bc = () => {
+		s.flat().forEach((e) => e.pause()), cancelAnimationFrame(C), g.kill(), Z.killTweensOf(c), clearTimeout(v), removeEventListener("wheel", b), removeEventListener("keydown", x), removeEventListener("resize", w), t.removeEventListener("click", S, !0);
 	};
 }
 function Sc() {
