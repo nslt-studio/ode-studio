@@ -1,8 +1,8 @@
 // Loader (au chargement complet du site uniquement ; les navigations swup ne le rejouent pas).
 // Webflow fournit .loader et ses textes / icônes ; le script dessine les deux cercles et les deux
 // ellipses, positionne tout (et au resize), puis joue :
-//   1. tracé des cercles, 2. apparition des textes en décalé, 3. le carré et le rond tournent chacun
-//   sur un cercle jusqu'au clic sur Enter, 4. fondu du loader pendant que l'animation d'arrivée de la
+//   1. apparition des textes en décalé, 2. tracé des cercles, 3. le carré et le rond apparaissent et
+//   tournent chacun sur un cercle, avec le bouton Enter ; au clic sur Enter, 4. fondu du loader pendant que l'animation d'arrivée de la
 //   page démarre (les pages attendent `onReady`).
 import { gsap } from 'gsap'
 import { siteEase } from './easing.js'
@@ -15,17 +15,19 @@ const ELLIPSE_RY = 0.7
 // Opacité et épaisseur (px) des tracés
 const LINE_OPACITY = 0.5
 const LINE_WIDTH = 0.5
+// Une forme sur deux se trace dans l'autre sens (cercle droit et ellipse droite) ; false = toutes
+// dans le même sens
+const ALTERNATE = true
 // ----- Timings (s) — toutes les animations utilisent la courbe --easing de Webflow -----
-// Tracé de chaque forme, et décalage entre deux formes
+// Ordre : 1. Studio, Production et logo ensemble, 2. tracés des cercles, 3. carré + rond + bouton Enter.
+// Les départs (*_START) sont en secondes depuis le début du loader.
+// Fondu d'apparition des textes (tous ensemble, à 0)
+const TEXT_FADE = 0.3
+// Tracé de chaque forme, décalage entre deux formes, et départ
 const DRAW = 1.5
 const DRAW_STAGGER = 0.025
-// Fondu d'apparition de chaque texte, et décalage entre deux textes
-const TEXT_FADE = 0.3
-const TEXT_STAGGER = 0.025
-// Départ des textes, en secondes après le début des tracés (sans attendre leur fin)
-const TEXT_START = 0.6
-// Fondu d'apparition du carré et du rond, et départ (s après le début des tracés, en même temps que
-// les textes par défaut)
+const DRAW_START = 0.15
+// Fondu d'apparition du carré, du rond et du bouton Enter, et départ
 const ORBITERS_FADE = 0.3
 const ORBITERS_START = 0.9
 // Durée d'un tour complet du carré / du rond sur leur cercle
@@ -75,7 +77,7 @@ export function initLoader() {
   })
   // Cercle gauche, cercle droit, ellipse gauche, ellipse droite. pathLength = 1 : le tracé s'anime
   // de 0 à 1 quelle que soit la taille (stroke-dashoffset 1 -> 0).
-  const shapes = ['circle', 'circle', 'ellipse', 'ellipse'].map((tag) => {
+  const shapes = ['circle', 'circle', 'ellipse', 'ellipse'].map((tag, i) => {
     const shape = document.createElementNS(svgNS, tag)
     shape.setAttribute('fill', 'none')
     shape.setAttribute('stroke', 'var(--white)')
@@ -83,7 +85,8 @@ export function initLoader() {
     shape.setAttribute('vector-effect', 'non-scaling-stroke')
     shape.setAttribute('pathLength', '1')
     shape.style.strokeDasharray = '1'
-    shape.style.strokeDashoffset = '1'
+    // 1 -> 0 : tracé dans le sens horaire ; -1 -> 0 : sens inverse
+    shape.style.strokeDashoffset = ALTERNATE && i % 2 ? '-1' : '1'
     svg.append(shape)
     return shape
   })
@@ -91,8 +94,8 @@ export function initLoader() {
 
   /* ---------- Placement ---------- */
 
-  // Carré sur le cercle gauche (départ à l'intersection du haut), rond sur le cercle droit (départ à
-  // l'intersection du bas) ; orbit.a = rotation commune (deg)
+  // Carré sur le cercle gauche (départ à son extrémité gauche, 180°), rond sur le cercle droit (départ
+  // à son extrémité droite, 0°) ; orbit.a = rotation commune (deg)
   const orbit = { a: 0 }
   let geo = null
 
@@ -109,8 +112,8 @@ export function initLoader() {
       const rad = (deg * Math.PI) / 180
       return [centerX + r * Math.cos(rad), cy + r * Math.sin(rad)]
     }
-    place(square, ...at(cx - r / 2, -60 + orbit.a))
-    place(dot, ...at(cx + r / 2, 120 + orbit.a))
+    place(square, ...at(cx - r / 2, 180 + orbit.a))
+    place(dot, ...at(cx + r / 2, 0 + orbit.a))
   }
 
   function layout() {
@@ -145,18 +148,19 @@ export function initLoader() {
 
   /* ---------- Animation ---------- */
 
-  const texts = [logo, left, right, enter].filter(Boolean)
+  // Studio (gauche), Production (droite), logo
+  const texts = [left, right, logo].filter(Boolean)
   const orbiters = [square, dot].filter(Boolean)
-  gsap.set([...texts, ...orbiters], { opacity: 0 })
+  const all = [...texts, ...orbiters, enter].filter(Boolean)
+  gsap.set(all, { opacity: 0 })
 
   const ease = siteEase()
-  // Tracés ; textes, carré et rond apparaissent pendant les tracés, sans attendre leur fin
+  // Textes, puis tracés des cercles, puis carré, rond et bouton Enter
   const intro = gsap.timeline({ defaults: { ease } })
   intro
-    .to(shapes, { strokeDashoffset: 0, duration: DRAW, stagger: DRAW_STAGGER }, 0)
-    // Les textes démarrent TEXT_START après le début des tracés, sans attendre leur fin
-    .to(texts, { opacity: 1, duration: TEXT_FADE, stagger: TEXT_STAGGER }, TEXT_START)
-    .to(orbiters, { opacity: 1, duration: ORBITERS_FADE }, ORBITERS_START)
+    .to(texts, { opacity: 1, duration: TEXT_FADE }, 0)
+    .to(shapes, { strokeDashoffset: 0, duration: DRAW, stagger: DRAW_STAGGER }, DRAW_START)
+    .to([...orbiters, enter].filter(Boolean), { opacity: 1, duration: ORBITERS_FADE }, ORBITERS_START)
 
   const spin = gsap.to(orbit, { a: 360, duration: ORBIT, ease: 'none', repeat: -1, onUpdate: placeOrbiters })
 
@@ -179,7 +183,7 @@ export function initLoader() {
     // d'arrivée de la page démarre ; 4. le loader est retiré
     gsap
       .timeline({ defaults: { ease } })
-      .to([svg, ...texts, ...orbiters], { opacity: 0, duration: EXIT_CONTENT })
+      .to([svg, ...all], { opacity: 0, duration: EXIT_CONTENT })
       .add(() => {
         html.classList.remove('is-loading')
         html.style.overflow = ''

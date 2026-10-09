@@ -14,7 +14,7 @@ gsap.registerPlugin(Draggable, InertiaPlugin)
 // Angle (deg) entre deux items sur la roue
 const ANGLE = 45
 // Échelle de l'item pile au centre, qui redescend linéairement à 1 à un cran du centre
-const ACTIVE_SCALE = 1.75
+const ACTIVE_SCALE = 1.5
 // Opacité des items non actifs (l'actif est à 1, dès qu'il devient actif, en 300ms var(--easing))
 const INACTIVE_OPACITY = 0.5
 // Rayon de la roue, en fraction de la hauteur d'écran
@@ -29,8 +29,8 @@ const VISIBLE = 1.5
 // que sa fin (décélération jusqu'au premier item). INTRO_STEPS : items parcourus (0 = pas d'animation) ;
 // INTRO_DURATION : durée (s) ; INTRO_EASE : courbe, très rapide au début pour donner l'impression d'un
 // mouvement déjà en cours.
-const INTRO_STEPS = 6
-const INTRO_DURATION = 2
+const INTRO_STEPS = 3
+const INTRO_DURATION = 1.5
 const INTRO_EASE = 'expo.out'
 
 let cleanup = null
