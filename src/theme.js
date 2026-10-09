@@ -3,7 +3,7 @@
 
 const KEY = 'ode-theme'
 // Durée pendant laquelle html.theme-transition est présent (doit couvrir la transition CSS)
-const TRANSITION = 150
+const TRANSITION = 300
 let transitionTimer = null
 
 function getSaved() {

@@ -18,6 +18,24 @@ export function setCurrentLinks(url) {
   })
 }
 
+// #headline : masqué sur certaines pages (data-page-hidden, posé par main.js) via la classe
+// html.hide-headline, mais toujours visible quand about est ouvert (html.about-open).
+// La même règle est posée dans le <head> Webflow avec un petit script : en arrivant directement sur une
+// page concernée, #headline est masqué avant le premier affichage (pas de clignotement).
+// Changement de page : immédiat ; ouverture / fermeture d'about : fondu (animate).
+const headlineStyle = document.createElement('style')
+headlineStyle.textContent = `
+  html.hide-headline:not(.about-open) #headline { opacity: 0 !important; pointer-events: none !important; }
+  html.about-open #headline { opacity: 1 !important; pointer-events: auto !important; }
+`
+document.head.append(headlineStyle)
+
+export function updateHeadline({ animate = false } = {}) {
+  const headline = document.querySelector('#headline')
+  if (headline) headline.style.transition = animate ? 'opacity 300ms var(--easing)' : 'none'
+  document.documentElement.classList.toggle('hide-headline', headline?.dataset.pageHidden === 'true')
+}
+
 // Panneau about : #aboutButton ouvre/ferme [data-accordion="about"]
 let aboutOpen = false
 
@@ -33,8 +51,8 @@ export function setAbout(open) {
     accordion.style.maxHeight = open && inner ? `${inner.scrollHeight}px` : '0px'
   }
 
+  // Horloge : apparaît / disparaît avec l'accordéon ; elle ne calcule rien quand elle est cachée
   document.querySelector('.nav .clock')?.classList.toggle('visible', open)
-  // L'horloge ne calcule rien quand elle est cachée
   open ? startClock() : stopClock()
 
   const wrapper = document.querySelector('.main-wrapper')
@@ -46,6 +64,7 @@ export function setAbout(open) {
 
   // Scroll bloqué ; la classe about-open sert aussi aux pages (ex. la roue de la home ignore molette / clavier)
   document.documentElement.classList.toggle('about-open', open)
+  updateHeadline({ animate: true })
   document.documentElement.style.overflow = open ? 'hidden' : ''
   document.body.style.overflow = open ? 'hidden' : ''
 

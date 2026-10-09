@@ -23,8 +23,10 @@ export function initSwup({ onStart, onLeave, onEnter }) {
   // Déclenché dès le clic (et sur précédent/suivant du navigateur)
   swup.hooks.on('visit:start', (visit) => {
     setCurrentLinks(visit.to.url)
-    setAbout(false)
+    // D'abord l'état de la page d'arrivée (ex. #headline masqué ou non), puis fermeture d'about :
+    // #headline passe directement de l'état "about ouvert" à celui de la page d'arrivée, sans aller-retour
     onStart?.(visit.to.url)
+    setAbout(false)
   })
   swup.hooks.before('content:replace', () => onLeave())
   swup.hooks.on('content:replace', (visit) => {

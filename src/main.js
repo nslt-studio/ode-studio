@@ -1,4 +1,4 @@
-import { initNav } from './nav.js'
+import { initNav, updateHeadline } from './nav.js'
 import { initSwup } from './swup.js'
 import { initTheme } from './theme.js'
 
@@ -7,21 +7,35 @@ const pages = import.meta.glob('./pages/*.js', { eager: true })
 
 let current = null
 
-// Pages où .nav et .footer sont masqués (opacity 0, non cliquables)
-const HIDE_CHROME = ['details']
-// URL des pages details, pour masquer .nav / .footer dès le clic (avant le chargement de la page)
-const DETAILS_URL = /^\/work\/[^/]+\/?$/
+// Pages où .nav et .footer sont masqués (opacity 0, non cliquables, fondu 300ms)
+const HIDE_CHROME = ['work-details', 'journal-details']
+// Pages où #headline est masqué (opacity 0, non cliquable, immédiatement)
+const HIDE_HEADLINE = ['work']
 
-function syncChrome(name) {
-  setChrome(HIDE_CHROME.includes(name))
+// Page d'arrivée devinée d'après l'URL, pour agir dès le clic (avant le chargement de la page) ;
+// corrigé ensuite par le data-swup réel à l'arrivée
+function pageFromUrl(url) {
+  const path = new URL(url, location.origin).pathname
+  if (/^\/work\/[^/]+\/?$/.test(path)) return 'work-details'
+  if (/^\/work\/?$/.test(path)) return 'work'
+  if (/^\/journal\/[^/]+\/?$/.test(path)) return 'journal-details'
+  if (/^\/journal\/?$/.test(path)) return 'journal'
+  if (path === '/') return 'home'
+  return null
 }
 
-function setChrome(hidden) {
+function syncChrome(name) {
+  const hidden = HIDE_CHROME.includes(name)
   document.querySelectorAll('.nav, .footer').forEach((el) => {
-    el.style.transition = 'opacity 150ms var(--easing)'
+    el.style.transition = 'opacity 300ms var(--easing)'
     el.style.opacity = hidden ? '0' : ''
     el.style.pointerEvents = hidden ? 'none' : ''
   })
+
+  // #headline : masqué sur ces pages, sauf quand about est ouvert (géré par nav.js)
+  const headline = document.querySelector('#headline')
+  if (headline) headline.dataset.pageHidden = HIDE_HEADLINE.includes(name)
+  updateHeadline()
 }
 
 function mountPage() {
@@ -48,7 +62,7 @@ if (window.__odeStudio) {
   initNav()
   initSwup({
     // Dès le clic : on devine la page d'arrivée d'après l'URL ; corrigé par data-swup à l'arrivée
-    onStart: (url) => setChrome(DETAILS_URL.test(new URL(url, location.origin).pathname)),
+    onStart: (url) => syncChrome(pageFromUrl(url)),
     onLeave: unmountPage,
     onEnter: mountPage,
   })

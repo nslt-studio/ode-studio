@@ -12,7 +12,7 @@ const RADIUS = { hour: 0.6, minute: 0.7, second: 1 }
 // Espace (px) entre l'icône et le début du texte
 const GAP = 8
 // Durée de la transition au changement de ville (ms), easing = var(--easing)
-const SWITCH_DURATION = 300
+const SWITCH_DURATION = 450
 
 let city = 'la'
 let offset = 0
@@ -212,7 +212,11 @@ function render(values, transition = '') {
 
 // Aiguilles à chaque frame, avec les millisecondes : mouvement continu
 function frame() {
-  if (!switching) render(angles(Date.now()))
+  const values = angles(Date.now())
+  // Pendant un changement de ville, seule l'aiguille des heures est en transition :
+  // les minutes et les secondes continuent leur mouvement
+  if (switching) delete values.hour
+  render(values)
   raf = requestAnimationFrame(frame)
 }
 
@@ -236,10 +240,10 @@ function setCity(key, animate = false) {
     correction[id] += shortest - delta
   }
 
-  // Les aiguilles vont directement là où elles doivent être à la fin de la transition,
-  // puis l'animation frame par frame reprend
+  // Seule l'aiguille des heures bouge (minutes et secondes sont identiques entre LA et NYC) : elle va
+  // directement là où elle doit être à la fin de la transition, puis reprend l'animation frame par frame
   switching = true
-  render(angles(now + SWITCH_DURATION), `transform ${SWITCH_DURATION}ms var(--easing)`)
+  render({ hour: angles(now + SWITCH_DURATION).hour }, `transform ${SWITCH_DURATION}ms var(--easing)`)
   clearTimeout(switchTimer)
   switchTimer = setTimeout(() => {
     switching = false

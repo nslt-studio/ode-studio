@@ -6,17 +6,16 @@
 import { gsap } from 'gsap'
 import { Draggable } from 'gsap/Draggable'
 import { InertiaPlugin } from 'gsap/InertiaPlugin'
+import { playClick } from '../sound.js'
 
 gsap.registerPlugin(Draggable, InertiaPlugin)
 
 // Angle (deg) entre deux items sur la roue
 const ANGLE = 45
-// Inclinaison (deg) d'un item à un cran du centre (0 = items droits, ANGLE = tangent à la roue)
-const TILT = 10
 // Échelle de l'item pile au centre, qui redescend linéairement à 1 à un cran du centre
 const ACTIVE_SCALE = 1.75
-// Opacité des items non actifs (l'actif est à 1, dès qu'il devient actif, en 150ms var(--easing))
-const INACTIVE_OPACITY = 0.35
+// Opacité des items non actifs (l'actif est à 1, dès qu'il devient actif, en 300ms var(--easing))
+const INACTIVE_OPACITY = 0.5
 // Rayon de la roue, en fraction de la hauteur d'écran
 const RADIUS = 0.85
 // Distance de glisser (px) pour passer d'un item au suivant
@@ -25,6 +24,13 @@ const DRAG = 400
 const MIN_GAP = 40
 // Nombre d'items rendus de chaque côté de l'actif (les autres sont masqués)
 const VISIBLE = 1.5
+// Animation d'arrivée : la roue est déjà lancée à pleine vitesse quand la page apparaît, et l'on ne voit
+// que sa fin (décélération jusqu'au premier item). INTRO_STEPS : items parcourus (0 = pas d'animation) ;
+// INTRO_DURATION : durée (s) ; INTRO_EASE : courbe, très rapide au début pour donner l'impression d'un
+// mouvement déjà en cours.
+const INTRO_STEPS = 6
+const INTRO_DURATION = 2
+const INTRO_EASE = 'expo.out'
 
 let cleanup = null
 
@@ -58,7 +64,7 @@ export function init(container) {
       left: '50%',
       margin: '0',
       // Seule l'opacité est animée (translate / rotate suivent la roue à chaque frame)
-      transition: 'opacity 150ms var(--easing)',
+      transition: 'opacity 300ms var(--easing)',
     })
     // Pas de "fantôme" d'image natif pendant le glisser
     item.querySelectorAll('img').forEach((img) => (img.draggable = false))
@@ -82,7 +88,7 @@ export function init(container) {
   // passe par-dessus l'item, et quand la roue tourne sous une souris immobile.
   const triangles = [...container.querySelectorAll('.triangle-left')]
   if (!triangles.length) console.warn('[home] .triangle-left introuvable dans la page')
-  triangles.forEach((t) => (t.style.transition = 'rotate 150ms var(--easing)'))
+  triangles.forEach((t) => (t.style.transition = 'rotate 300ms var(--easing)'))
   let pointer = null
   function updateCursor() {
     const over = pointer && document.elementsFromPoint(pointer.x, pointer.y).includes(items[active])
@@ -103,7 +109,9 @@ export function init(container) {
       const y = radius * Math.sin(rad)
       item.style.visibility = ''
       item.style.translate = `calc(-50% + ${x}px) calc(-50% + ${y}px)`
-      item.style.rotate = `${rel * TILT}deg`
+      // Rotation d'une roue rigide : l'item tourne exactement du même angle que sa position sur la roue
+      // (centre à droite : descendre sur la roue = tourner dans le sens inverse des aiguilles d'une montre)
+      item.style.rotate = `${-rel * ANGLE}deg`
       // 1 pile au centre -> 0 à un cran : sert à l'échelle du média
       const focus = Math.max(0, 1 - Math.abs(rel))
       // L'échelle s'applique au média de l'item, pas à l'item entier
@@ -113,6 +121,8 @@ export function init(container) {
 
     const index = ((Math.round(p) % n) + n) % n
     if (index !== active) {
+      // Pas de clic au premier affichage, seulement quand la roue change d'item
+      if (active !== -1) playClick()
       active = index
       items.forEach((item, i) => {
         item.classList.toggle('active', i === index)
@@ -214,6 +224,21 @@ export function init(container) {
   document.documentElement.addEventListener('pointerleave', onPointerLeave)
 
   measure()
+
+  // Arrivée : la roue tourne déjà dès le premier affichage (aucun délai, aucune image à l'arrêt) puis
+  // ralentit jusqu'au premier item.
+  // Toute interaction (glisser, molette, clavier, clic) reprend aussitôt la main. Pas d'animation si
+  // le visiteur a demandé à réduire les animations (réglage du système).
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (INTRO_STEPS && !reduceMotion) {
+    gsap.set(proxy, { y: INTRO_STEPS * DRAG })
+    gsap.to(proxy, {
+      y: 0,
+      duration: INTRO_DURATION,
+      ease: INTRO_EASE,
+      onUpdate: render,
+    })
+  }
   render()
 
   cleanup = () => {

@@ -1,10 +1,12 @@
-// Work : nuage de .dots-item + grille de .grid-item reliés par leur slug (data-dots = data-grid)
-// et par leurs clients (data-client). Survoler un point ou une case met en avant le projet,
-// les projets partageant un client, les relie par des fils et estompe le reste de la grille.
+// Work : nuage de .dots-item + liste .index-item reliés par projet (data-index / slug du lien = data-dots)
+// et par leurs clients (data-client). Survoler un point ou une ligne met en avant le projet et ceux
+// partageant un client, les relie par des fils et estompe le reste de la liste. Tri et filtres sur la liste.
+
+import { gsap } from 'gsap'
 
 // Rayon du nuage, en fraction de la moitié du plus petit côté de .dots-list
 const CLOUD = 0.5
-// Marge (px) à garder entre les items (titres compris) et les bords de l'écran
+// Marge (px) à garder entre les items et les bords de l'écran
 const PADDING = 16
 // Courbure des fils, en fraction de la longueur du segment : 0 = droit, plus grand = plus bombé,
 // négatif = bombé vers l'intérieur de la forme au lieu de l'extérieur
@@ -20,18 +22,30 @@ const BEND_REF = 0.5
 const BEND_GROWTH = 1
 // Courbure maximale (fraction de la longueur) pour éviter les boucles sur les très longs fils
 const BEND_MAX = 0.5
-// Opacité des .grid-item qui ne correspondent pas au survol
-const DIM = 0.35
-const TRANSITION = 'opacity 150ms var(--easing)'
 // Épaisseur des fils (px)
 const WIRE_WIDTH = 0.5
-// Index : opacité des autres .index-item au survol
-const INDEX_DIM = 0.35
+// Opacité des .index-item qui ne correspondent pas au survol
+const INDEX_DIM = 0.5
 // Décalage (px) du coin haut gauche de .index-media par rapport à la souris
 const MEDIA_OFFSET = 12
-// Filtres : opacité des .grid-item / .index-item écartés, et durée du repositionnement du nuage
+// Filtres : opacité des .index-item écartés, et durée du repositionnement du nuage
 const FILTERED_OPACITY = 0.1
 const MOVE = 'left 300ms var(--easing), top 300ms var(--easing)'
+// Animation d'arrivée : chaque cercle de points tourne de INTRO_SPIN degrés (en sens opposés) et ralentit
+// jusqu'à sa place, comme la fin d'un mouvement déjà lancé (0 = pas de rotation)
+const INTRO_SPIN = 40
+const INTRO_DURATION = 1.8
+const INTRO_EASE = 'expo.out'
+// Apparition des lignes de l'index : durée (s) du fondu de chaque ligne et décalage (s) entre deux lignes
+const INDEX_FADE = 0.4
+const INDEX_STAGGER = 0.03
+// Disposition des points : 'rings' (cercles concentriques) ou 'cloud' (nuage aléatoire)
+const LAYOUT = 'rings'
+// Cercles : rayon du cercle intérieur, en fraction du cercle extérieur
+const RING_INNER = 0.6
+// Lignes circulaires tracées entre les cercles de points (une à l'intérieur, une entre les deux, une à
+// l'extérieur, à mi-distance) : opacité (0 = pas de lignes)
+const RING_LINE_OPACITY = 0.1
 
 let cleanup = null
 
@@ -43,7 +57,7 @@ const slugify = (v = '') =>
   v
     .toString()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
@@ -80,31 +94,99 @@ function scatter(n) {
   return points
 }
 
+// Deux cercles concentriques (extérieur au rayon 1, intérieur à RING_INNER), centre vide, façon roue :
+// les points sont partagés à parts égales (à 1 près, l'intérieur prenant le point en plus) et répartis
+// régulièrement sur chaque cercle, départ en haut puis sens horaire, dans l'ordre de l'index.
+function rings(n) {
+  const inner = Math.ceil(n / 2)
+  const points = []
+  ;[
+    [inner, RING_INNER, 'inner'],
+    [n - inner, 1, 'outer'],
+  ].forEach(([count, r, ring]) => {
+    for (let i = 0; i < count; i++) {
+      const a = -Math.PI / 2 + (i / count) * Math.PI * 2
+      points.push({ x: r * Math.cos(a), y: r * Math.sin(a), ring })
+    }
+  })
+  return points
+}
+
+
 export function init(container) {
   const list = container.querySelector('.dots-list')
   const dots = [...(list?.querySelectorAll('.dots-item') ?? [])]
-  const grids = [...container.querySelectorAll('.grid-list .grid-item')]
-  if (!dots.length) return
+  const indexList = container.querySelector('.index-list')
+  const indexItems = [...(indexList?.querySelectorAll('.index-item') ?? [])]
+
+  const listeners = []
+  const on = (el, type, fn) => {
+    el.addEventListener(type, fn)
+    listeners.push(() => el.removeEventListener(type, fn))
+  }
+
+  /* ---------- Liens de l'index ---------- */
+
+  // .index-link : href = slug seul dans Webflow -> /work/slug (liens absolus, ancres et déjà préfixés ignorés)
+  const linkSlugs = new Map()
+  indexItems.forEach((item) => {
+    const link = item.querySelector('.index-link')
+    const href = link?.getAttribute('href')?.trim()
+    if (!href || /^([a-z]+:|#|\/\/)/i.test(href)) return
+    const slug = href.replace(/^\/+/, '')
+    linkSlugs.set(item, slug.split('/').filter(Boolean).pop())
+    if (slug && !slug.startsWith('work/')) link.setAttribute('href', `/work/${slug}`)
+  })
+
+  /* ---------- Données de l'index ---------- */
+
+  // Chaque .index-item reçoit data-client (ses .clients-item) et data-services (ses .services-item,
+  // utilisés par les filtres).
+  const collator = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' })
+
+  indexItems.forEach((item) => {
+    item.dataset.client = clientsOf(item).join(', ')
+    item.dataset.services = [...item.querySelectorAll('.services-item')]
+      .map((el) => el.textContent.trim())
+      .filter(Boolean)
+      .join(', ')
+  })
+
+  // Ligne <-> point du même projet (data-index ou slug du lien = data-dots) ; les attributs de la ligne
+  // (nom, type, année, services, clients) sont copiés sur le point.
+  const COPIED = ['index', 'type', 'year', 'services', 'client']
+  const dotBySlug = new Map(dots.map((d) => [slugify(d.dataset.dots), d]))
+  const slugOfItem = new Map()
+  const itemBySlug = new Map()
+
+  indexItems.forEach((item) => {
+    const keys = [item.dataset.index, linkSlugs.get(item)].map(slugify).filter(Boolean)
+    const dot = keys.map((k) => dotBySlug.get(k)).find(Boolean)
+    if (!dot) return
+    slugOfItem.set(item, dot.dataset.dots)
+    itemBySlug.set(dot.dataset.dots, item)
+    COPIED.forEach((attr) => {
+      if (item.dataset[attr] && !dot.dataset[attr]) dot.dataset[attr] = item.dataset[attr]
+    })
+  })
 
   /* ---------- Clients ---------- */
 
-  // slug -> Set des clients (en minuscules pour la comparaison)
+  // slug -> Set des clients (en minuscules pour la comparaison) : ceux du point, sinon ceux de sa ligne
   const clients = new Map()
   dots.forEach((dot) => {
-    const names = clientsOf(dot)
-    dot.dataset.client = names.join(', ')
-    clients.set(dot.dataset.dots, new Set(names.map((c) => c.toLowerCase())))
-  })
-  grids.forEach((grid) => {
-    const dot = dots.find((d) => d.dataset.dots === grid.dataset.grid)
-    if (dot) grid.dataset.client = dot.dataset.client
+    const own = clientsOf(dot)
+    if (own.length) dot.dataset.client = own.join(', ')
+    const names = (dot.dataset.client ?? '').split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
+    clients.set(dot.dataset.dots, new Set(names))
   })
 
-  // Projets partageant au moins un client avec `slug` (lui compris)
+  // Projets visibles (filtres) partageant au moins un client avec `slug` (lui compris)
   function related(slug) {
+    if (!slug) return []
     const own = clients.get(slug) ?? new Set()
     return dots
-      .filter(isDotActive)
+      .filter(isActive)
       .map((d) => d.dataset.dots)
       .filter((s) => s === slug || [...(clients.get(s) ?? [])].some((c) => own.has(c)))
   }
@@ -112,22 +194,41 @@ export function init(container) {
   /* ---------- Nuage ---------- */
 
   // Position (disque de rayon 1) de chaque point ; le nuage complet garde toujours la même disposition
-  const original = new Map(scatter(dots.length).map((p, i) => [dots[i], p]))
-  let points = new Map(original)
+  // Position (disque de rayon 1) de chaque point, attribuée par arrangeDots()
+  let points = new Map()
+
+  // Les points visibles prennent les positions dans l'ordre de leur ligne dans l'index (1re ligne = 1re
+  // position : centre de la disposition) ; les points sans ligne ferment la marche.
+  // Rotation (deg) de chaque cercle, animée à l'arrivée sur la page
+  const spin = { inner: 0, outer: 0 }
+  let introSpin = null
+
+  function arrangeDots({ animate = true } = {}) {
+    // Un tri / filtre pendant l'animation d'arrivée l'interrompt : les cercles se remettent droits
+    if (introSpin) {
+      introSpin.kill()
+      introSpin = null
+      spin.inner = spin.outer = 0
+    }
+    const rows = [...(indexList?.querySelectorAll('.index-item') ?? [])]
+    const rank = (dot) => {
+      const i = rows.indexOf(itemBySlug.get(dot.dataset.dots))
+      return i === -1 ? Infinity : i
+    }
+    const ordered = dots.filter(isActive).sort((a, b) => rank(a) - rank(b))
+    const positions = LAYOUT === 'rings' ? rings(ordered.length) : scatter(ordered.length)
+    points = new Map(positions.map((p, i) => [ordered[i], p]))
+    layout({ animate })
+  }
   // Centre de chaque .dots-link une fois placé (coordonnées de la liste) : sert aux fils,
   // même pendant le repositionnement animé
   const anchorPos = new Map()
-  const titlesOf = (dot) => dot.querySelector('.dots-titles')
   const anchorOf = (dot) => dot.querySelector('.dots-link') || dot
 
   dots.forEach((dot) => {
-    // L'opacité de repos (ex. 0.35) est sur le .dots-link : c'est lui qui passe à 1 à la sélection
-    anchorOf(dot).style.transition = TRANSITION
-    const titles = titlesOf(dot)
-    if (titles) {
-      titles.style.opacity = '0'
-      titles.style.transition = TRANSITION
-    }
+    // L'opacité de repos (ex. 0.35) est sur le .dots-link : c'est lui qui passe à 1 à la sélection,
+    // immédiatement (aucune transition, y compris celles éventuellement définies dans Webflow)
+    anchorOf(dot).style.transition = 'none'
   })
 
   // Rayon du nuage (px), mis à jour par layout()
@@ -135,9 +236,9 @@ export function init(container) {
 
   // animate : repositionnement lisse (filtres) ; sinon placement direct (chargement, resize)
   function layout({ animate = false } = {}) {
+    if (!list) return
     const listRect = list.getBoundingClientRect()
-    // Nuage caché (ex. arrivée en vue list) : rien à mesurer, il sera placé à l'affichage de la grille
-    if (!list.offsetParent && getComputedStyle(list).position !== 'fixed') return
+    // Nuage caché : rien à mesurer
     if (!listRect.width && !listRect.height) return
     // Zone autorisée : la .dots-list, limitée à la partie visible de l'écran (coordonnées de la liste)
     let bounds = {
@@ -153,26 +254,35 @@ export function init(container) {
     const cx = listRect.width / 2
     const cy = listRect.height / 2
     radius = (Math.min(listRect.width, listRect.height) / 2) * CLOUD
+    drawRingLines(cx, cy)
 
-    dots.filter(isDotActive).forEach((dot) => {
-      // Étendue de l'item (titres compris) autour du centre du point : mesures relatives,
+    // Toutes les mesures d'abord, puis toutes les écritures (un seul calcul de mise en page par appel,
+    // important pendant l'animation d'arrivée où layout() tourne à chaque frame)
+    const metrics = dots.filter(isActive).map((dot) => {
+      // Étendue de l'item autour du centre du point : mesures relatives,
       // valables quelle que soit sa position actuelle (même en cours d'animation)
       const itemRect = dot.getBoundingClientRect()
-      const titlesRect = titlesOf(dot)?.getBoundingClientRect() ?? itemRect
       const a = anchorOf(dot).getBoundingClientRect()
       const ax = a.left + a.width / 2 - itemRect.left
       const ay = a.top + a.height / 2 - itemRect.top
       const ext = {
-        left: Math.min(itemRect.left, titlesRect.left) - itemRect.left - ax,
-        top: Math.min(itemRect.top, titlesRect.top) - itemRect.top - ay,
-        right: Math.max(itemRect.right, titlesRect.right) - itemRect.left - ax,
-        bottom: Math.max(itemRect.bottom, titlesRect.bottom) - itemRect.top - ay,
+        left: -ax,
+        top: -ay,
+        right: itemRect.width - ax,
+        bottom: itemRect.height - ay,
       }
+      return { dot, ax, ay, ext }
+    })
 
+    metrics.forEach(({ dot, ax, ay, ext }) => {
       const clamp = (v, min, max) => (min > max ? (min + max) / 2 : Math.min(Math.max(v, min), max))
       const point = points.get(dot)
-      const x = clamp(cx + point.x * radius, bounds.left + PADDING - ext.left, bounds.right - PADDING - ext.right)
-      const y = clamp(cy + point.y * radius, bounds.top + PADDING - ext.top, bounds.bottom - PADDING - ext.bottom)
+      // Rotation éventuelle du cercle du point (animation d'arrivée)
+      const rot = ((spin[point.ring] ?? 0) * Math.PI) / 180
+      const px = point.x * Math.cos(rot) - point.y * Math.sin(rot)
+      const py = point.x * Math.sin(rot) + point.y * Math.cos(rot)
+      const x = clamp(cx + px * radius, bounds.left + PADDING - ext.left, bounds.right - PADDING - ext.right)
+      const y = clamp(cy + py * radius, bounds.top + PADDING - ext.top, bounds.bottom - PADDING - ext.bottom)
 
       dot.style.transition = animate ? MOVE : 'none'
       dot.style.left = `${x - ax}px`
@@ -181,9 +291,43 @@ export function init(container) {
     })
   }
 
-  /* ---------- Fils ---------- */
+  /* ---------- Lignes entre les cercles ---------- */
 
   const svgNS = 'http://www.w3.org/2000/svg'
+  const ringLines = document.createElementNS(svgNS, 'svg')
+  Object.assign(ringLines.style, {
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    overflow: 'visible',
+    pointerEvents: 'none',
+    opacity: String(RING_LINE_OPACITY),
+  })
+  // Rayons (fraction du cercle extérieur) : à mi-distance entre les cercles de points, plus un écart
+  // équivalent de part et d'autre
+  const gap = 1 - RING_INNER
+  const lines = [RING_INNER - gap / 2, (RING_INNER + 1) / 2, 1 + gap / 2].map((ratio) => {
+    const circle = document.createElementNS(svgNS, 'circle')
+    circle.setAttribute('fill', 'none')
+    circle.setAttribute('stroke', 'var(--white)')
+    circle.setAttribute('stroke-width', String(WIRE_WIDTH))
+    circle.setAttribute('vector-effect', 'non-scaling-stroke')
+    ringLines.append(circle)
+    return { circle, ratio }
+  })
+  if (list && LAYOUT === 'rings' && RING_LINE_OPACITY) list.prepend(ringLines)
+
+  function drawRingLines(cx, cy) {
+    lines.forEach(({ circle, ratio }) => {
+      circle.setAttribute('cx', cx)
+      circle.setAttribute('cy', cy)
+      circle.setAttribute('r', Math.max(radius * ratio, 0))
+    })
+  }
+
+  /* ---------- Fils ---------- */
+
   const svg = document.createElementNS(svgNS, 'svg')
   Object.assign(svg.style, {
     position: 'absolute',
@@ -193,26 +337,29 @@ export function init(container) {
     overflow: 'visible',
     pointerEvents: 'none',
     opacity: '0',
-    transition: TRANSITION,
+    // Fils affichés / masqués immédiatement
+    transition: 'none',
   })
-  if (getComputedStyle(list).position === 'static') list.style.position = 'relative'
   const path = document.createElementNS(svgNS, 'path')
   path.setAttribute('fill', 'none')
   path.setAttribute('stroke', 'var(--white)')
   path.setAttribute('stroke-width', String(WIRE_WIDTH))
   path.setAttribute('vector-effect', 'non-scaling-stroke')
   svg.append(path)
-  list.prepend(svg)
+  if (list) {
+    if (getComputedStyle(list).position === 'static') list.style.position = 'relative'
+    list.prepend(svg)
+  }
 
-  // Relie les points dans l'ordre angulaire autour de leur centre (boucle fermée dès 3 points),
-  // chaque segment légèrement courbé vers l'extérieur
   // Groupe actuellement relié (redessiné si les points bougent au resize)
   let wired = null
 
+  // Relie les points dans l'ordre angulaire autour de leur centre (boucle fermée dès 3 points),
+  // chaque segment courbé selon BEND / sa longueur
   function drawWires(slugs) {
     const pts = slugs
       .map((s) => dots.find((d) => d.dataset.dots === s))
-      .filter((dot) => dot && isDotActive(dot) && anchorPos.has(dot))
+      .filter((dot) => dot && isActive(dot) && anchorPos.has(dot))
       .map((dot) => ({ ...anchorPos.get(dot), slug: dot.dataset.dots }))
 
     if (pts.length < 2) {
@@ -255,28 +402,56 @@ export function init(container) {
 
   /* ---------- Mise en avant ---------- */
 
-  // slug survolé (point ou case) : le projet + ceux qui partagent un client passent à 1, reliés par
-  // des fils ; les cases de la grille qui ne correspondent pas sont estompées.
-  function highlight(slug, { scroll = false, title = false } = {}) {
+  // Opacité d'une ligne : écartée par les filtres (0.1, non cliquable), estompée par un survol, ou normale.
+  // Aucune transition sur l'index (y compris celles éventuellement définies dans Webflow).
+  // keep : élément de la ligne qui doit rester à 1 (nom du client du groupe survolé). Dans ce cas, au lieu
+  // d'estomper la ligne entière, on estompe tout ce qui l'entoure dans la ligne (frères à chaque niveau).
+  const partlyDimmed = new Set()
+  function styleIndex(item, dimmed, keep = null) {
+    const active = isActive(item)
+    item.style.pointerEvents = active ? '' : 'none'
+    if (!active) return void (item.style.opacity = String(FILTERED_OPACITY))
+    if (!dimmed || !keep || !item.contains(keep)) return void (item.style.opacity = dimmed ? String(INDEX_DIM) : '')
+
+    item.style.opacity = ''
+    for (let node = keep; node !== item; node = node.parentElement) {
+      ;[...node.parentElement.children].forEach((sibling) => {
+        // Le .index-media gère sa propre opacité (affiché seulement sur la ligne survolée)
+        if (sibling === node || sibling.classList.contains('index-media')) return
+        sibling.style.transition = 'none'
+        sibling.style.opacity = String(INDEX_DIM)
+        partlyDimmed.add(sibling)
+      })
+    }
+  }
+
+  // Applique l'estompage à toute la liste (dimmed(item) -> bool)
+  function styleAllIndex(dimmed, keep = null) {
+    partlyDimmed.forEach((el) => (el.style.opacity = ''))
+    partlyDimmed.clear()
+    indexItems.forEach((item) => styleIndex(item, dimmed(item), keep))
+  }
+
+  // slug survolé (point ou ligne) : le projet + ceux qui partagent un client passent à 1, reliés par
+  // des fils ; les lignes de l'index qui ne correspondent pas sont estompées.
+  // scroll : si aucune ligne correspondante n'est visible, la page défile jusqu'à celle du projet.
+  function highlight(slug, { scroll = false } = {}) {
     const group = related(slug)
     wired = group
 
     dots.forEach((dot) => {
       anchorOf(dot).style.opacity = group.includes(dot.dataset.dots) ? '1' : ''
-      const titles = titlesOf(dot)
-      if (title && titles) titles.style.opacity = dot.dataset.dots === slug ? '1' : '0'
     })
-    grids.forEach((grid) => styleGrid(grid, !group.includes(grid.dataset.grid)))
+    styleAllIndex((item) => !group.includes(slugOfItem.get(item)))
     drawWires(group)
 
-    // Défilement automatique seulement si la grille est la vue affichée
-    if (scroll && view === 'grid') {
-      const matching = grids.filter((g) => isGridActive(g) && group.includes(g.dataset.grid))
-      const visible = matching.some((g) => {
-        const r = g.getBoundingClientRect()
+    if (scroll) {
+      const matching = indexItems.filter((item) => isActive(item) && group.includes(slugOfItem.get(item)))
+      const visible = matching.some((item) => {
+        const r = item.getBoundingClientRect()
         return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth
       })
-      const target = grids.find((g) => g.dataset.grid === slug) ?? matching[0]
+      const target = itemBySlug.get(slug) ?? matching[0]
       if (!visible && target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
@@ -285,67 +460,26 @@ export function init(container) {
     wired = null
     dots.forEach((dot) => {
       anchorOf(dot).style.opacity = ''
-      const titles = titlesOf(dot)
-      if (titles) titles.style.opacity = '0'
     })
-    grids.forEach((grid) => styleGrid(grid, false))
+    styleAllIndex(() => false)
     svg.style.opacity = '0'
   }
 
-  // Opacité d'une case : écartée par les filtres (0.1, non cliquable), estompée par un survol (DIM), ou normale
-  function styleGrid(grid, dimmed) {
-    const active = isGridActive(grid)
-    grid.style.opacity = !active ? String(FILTERED_OPACITY) : dimmed ? String(DIM) : ''
-    grid.style.pointerEvents = active ? '' : 'none'
-  }
-
-  grids.forEach((grid) => (grid.style.transition = TRANSITION))
-
-
-  /* ---------- Liens de l'index ---------- */
-
-  // .index-link : href = slug seul dans Webflow -> /work/slug (liens absolus, ancres et déjà préfixés ignorés)
-  container.querySelectorAll('.index-list .index-item .index-link').forEach((link) => {
-    const href = link.getAttribute('href')?.trim()
-    if (!href || /^([a-z]+:|#|\/\/)/i.test(href)) return
-    const slug = href.replace(/^\/+/, '')
-    if (!slug || slug.startsWith('work/')) return
-    link.setAttribute('href', `/work/${slug}`)
-  })
-
   /* ---------- Tri de l'index ---------- */
 
-  // Chaque .index-item reçoit data-client (ses .clients-item) et data-services (ses .services-item,
-  // eux-mêmes remis dans l'ordre alphabétique dans leur .services-list).
-  // Les boutons [data-caption] de .index-caption trient la liste (A → Z) ; "client" par défaut.
-  const collator = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' })
-  const indexList = container.querySelector('.index-list')
-  const sortItems = [...(indexList?.querySelectorAll('.index-item') ?? [])]
-
-  sortItems.forEach((item) => {
-    item.dataset.client = clientsOf(item).join(', ')
-
-    const servicesList = item.querySelector('.services-list')
-    const services = [...item.querySelectorAll('.services-item')].sort((a, b) =>
-      collator.compare(a.textContent.trim(), b.textContent.trim())
-    )
-    if (servicesList) services.forEach((el) => servicesList.append(el))
-    item.dataset.services = services.map((el) => el.textContent.trim()).filter(Boolean).join(', ')
-  })
-
+  // Boutons [data-caption] de .index-caption : tri A → Z ("client" par défaut), re-clic = ordre inverse.
   // Valeur de tri de chaque critère (pour les clients / services : le premier de la liste)
   const SORT_KEYS = {
     client: (item) => item.dataset.client.split(', ')[0],
     project: (item) => item.dataset.index,
-    services: (item) => item.dataset.services.split(', ')[0],
     type: (item) => item.dataset.type,
     year: (item) => item.dataset.year,
   }
   let caption = 'client'
   let reverse = false
 
-  // Nouveau critère : A → Z ; re-clic sur le critère actif : inverse l'ordre (Z → A, puis A → Z…)
-  function sortIndex(key, toggle = false) {
+  // animate : repositionnement lisse des points selon le nouvel ordre
+  function sortIndex(key, toggle = false, animate = true) {
     if (!SORT_KEYS[key] || !indexList) return
     reverse = toggle && key === caption ? !reverse : false
     caption = key
@@ -355,7 +489,7 @@ export function init(container) {
       b.classList.toggle('reverse', b.dataset.caption === key && reverse)
     })
     const value = (item) => (SORT_KEYS[key](item) ?? '').trim()
-    sortItems
+    indexItems
       .slice()
       .sort((a, b) => {
         const va = value(a)
@@ -365,19 +499,81 @@ export function init(container) {
         return reverse ? collator.compare(vb, va) : collator.compare(va, vb)
       })
       // Filtres : les projets actifs en haut, les autres ensuite (chacun dans l'ordre du tri)
-      .sort((a, b) => isIndexActive(b) - isIndexActive(a))
+      .sort((a, b) => isActive(b) - isActive(a))
       .forEach((item) => indexList.append(item))
+    updateDirectory()
+    arrangeDots({ animate })
+  }
+
+  /* ---------- Répertoire par client ---------- */
+
+  // Tri par client : les clients ne sont affichés que sur la première ligne de chaque groupe (lignes
+  // consécutives ayant exactement les mêmes clients), façon répertoire. Au survol d'une ligne du groupe,
+  // ce bloc de clients suit la souris verticalement, sans dépasser la première et la dernière ligne du groupe.
+  // Bloc des clients d'une ligne : .clients-list, sinon le parent des .clients-item, sinon le .clients-item
+  const labelOf = (item) => {
+    const first = item.querySelector('.clients-item')
+    if (!first) return null
+    return item.querySelector('.clients-list') || (first.parentElement !== item ? first.parentElement : first)
+  }
+  // ligne -> { label, items } de son groupe (uniquement en tri par client)
+  let groups = new Map()
+
+  function updateDirectory() {
+    groups = new Map()
+    let current = null
+    let previousKey = null
+    ;[...indexList.querySelectorAll('.index-item')].forEach((item) => {
+      const label = labelOf(item)
+      if (label) {
+        label.style.translate = ''
+        // Le bloc des clients se déplace par-dessus les lignes voisines : il ne doit jamais capter la
+        // souris, sinon le survol bascule sans cesse entre sa ligne et celle réellement survolée
+        label.style.pointerEvents = 'none'
+      }
+      // Clé du groupe : l'ensemble des clients (+ l'état des filtres, les lignes écartées étant en bas)
+      const clientKey = item.dataset.client
+        .split(',')
+        .map((c) => c.trim().toLowerCase())
+        .filter(Boolean)
+        .sort()
+        .join('|')
+      const key = clientKey && `${isActive(item)}:${clientKey}`
+
+      if (caption !== 'client' || !key) {
+        if (label) label.style.visibility = ''
+        previousKey = null
+        return
+      }
+      if (key !== previousKey) current = { label, items: [] }
+      current.items.push(item)
+      groups.set(item, current)
+      if (label) label.style.visibility = key === previousKey ? 'hidden' : ''
+      previousKey = key
+    })
+  }
+
+  // Nom du groupe de la ligne survolée centré sur la souris (en y), borné au groupe ; les autres reposent
+  function followLabel() {
+    const group = hoveredIndex && groups.get(hoveredIndex)
+    groups.forEach((g) => g !== group && g.label && (g.label.style.translate = ''))
+    if (!group?.label) return
+    const label = group.label
+    label.style.translate = ''
+    const rest = label.getBoundingClientRect()
+    const top = group.items[0].getBoundingClientRect().top
+    const bottom = group.items[group.items.length - 1].getBoundingClientRect().bottom
+    const target = Math.min(Math.max(pointer.y - rest.height / 2, top), bottom - rest.height)
+    label.style.translate = `0 ${target - rest.top}px`
   }
 
   /* ---------- Survol de l'index ---------- */
 
-  // Survol d'un .index-item : les autres passent à INDEX_DIM, son .index-media apparaît et suit
-  // directement la souris (sans retard)
-  const indexItems = [...container.querySelectorAll('.index-list .index-item')]
+  // Survol d'un .index-item : les autres lignes passent à INDEX_DIM ; dans le nuage, même mise en avant
+  // qu'au survol d'un point (fils, sans défilement) ; son .index-media suit la souris.
   const pointer = { x: innerWidth / 2, y: innerHeight / 2 }
   const followers = new Map()
 
-  // Aucune transition sur le survol de l'index (y compris celles éventuellement définies dans Webflow)
   indexItems.forEach((item) => {
     item.style.transition = 'none'
     const media = item.querySelector(':scope > .index-media') || item.querySelector('.index-media')
@@ -395,16 +591,23 @@ export function init(container) {
 
   let hoveredIndex = null
 
-  // Coin haut gauche du média juste en bas à droite de la souris, sans jamais sortir de l'écran
+  // Média en bas à droite de la souris ; s'il sortirait par la droite, il passe à gauche de la souris.
+  // Verticalement, il reste bloqué au bas de l'écran.
   function placeMedia(media) {
-    const x = Math.min(pointer.x + MEDIA_OFFSET, innerWidth - media.offsetWidth - MEDIA_OFFSET)
+    const w = media.offsetWidth
+    const right = pointer.x + MEDIA_OFFSET
+    const x = right + w + MEDIA_OFFSET > innerWidth ? pointer.x - MEDIA_OFFSET - w : right
     const y = Math.min(pointer.y + MEDIA_OFFSET, innerHeight - media.offsetHeight - MEDIA_OFFSET)
     media.style.transform = `translate(${Math.max(x, 0)}px, ${Math.max(y, 0)}px)`
   }
 
   function onIndexEnter(item) {
     hoveredIndex = item
-    indexItems.forEach((other) => styleIndex(other, other !== item))
+    highlight(slugOfItem.get(item))
+    // Dans la liste, seule la ligne survolée reste à 1 (même les projets liés sont estompés)
+    // Le nom du client du groupe (qui suit la souris) reste à 1, même s'il est sur une autre ligne
+    styleAllIndex((other) => other !== item, groups.get(item)?.label)
+    followLabel()
     const media = followers.get(item)
     if (!media) return
     placeMedia(media)
@@ -415,17 +618,12 @@ export function init(container) {
     if (hoveredIndex === item) hoveredIndex = null
     const media = followers.get(item)
     if (media) media.style.opacity = '0'
-    // Passage direct d'un item à l'autre : le pointerenter suivant réapplique les opacités
+    // Passage direct d'une ligne à l'autre : le pointerenter suivant réapplique la mise en avant
     requestAnimationFrame(() => {
-      if (!hoveredIndex) indexItems.forEach((other) => styleIndex(other, false))
+      if (hoveredIndex) return
+      clear()
+      followLabel()
     })
-  }
-
-  // Opacité d'une ligne : écartée par les filtres (0.1, non cliquable), estompée par un survol, ou normale
-  function styleIndex(item, dimmed) {
-    const active = isIndexActive(item)
-    item.style.opacity = !active ? String(FILTERED_OPACITY) : dimmed ? String(INDEX_DIM) : ''
-    item.style.pointerEvents = active ? '' : 'none'
   }
 
   function onIndexMove(e) {
@@ -433,12 +631,14 @@ export function init(container) {
     pointer.y = e.clientY
     const media = hoveredIndex && followers.get(hoveredIndex)
     if (media) placeMedia(media)
+    followLabel()
   }
 
-  /* ---------- Filtres ---------- */
+  /* ---------- Accordéon des filtres ---------- */
 
   // #filterButton : 1er clic ouvre [data-accordion="filter"] (max-height = hauteur de son .accordion-inner,
-  // comme l'accordéon de la nav), .active sur le bouton et son .triangle-bottom pivote de 180° ; 2e clic referme.
+  // comme l'accordéon de la nav), .active sur le bouton et son .triangle-bottom pivote de 180° ; 2e clic,
+  // clic en dehors ou Échap referment.
   const filterButton = container.querySelector('#filterButton, .filterButton')
   const filterAccordion = container.querySelector('[data-accordion="filter"]')
   const filterTriangle = filterButton?.querySelector('.triangle-bottom svg, svg.triangle-bottom, .triangle-bottom')
@@ -446,7 +646,7 @@ export function init(container) {
 
   if (filterTriangle) {
     filterTriangle.style.transformOrigin = '50% 50%'
-    filterTriangle.style.transition = 'rotate 150ms var(--easing)'
+    filterTriangle.style.transition = 'rotate 300ms var(--easing)'
   }
 
   function setFilter(open) {
@@ -458,29 +658,10 @@ export function init(container) {
       const inner = filterAccordion.querySelector('.accordion-inner')
       filterAccordion.style.maxHeight = open && inner ? `${inner.scrollHeight}px` : '0px'
     }
+    syncFilterUrl()
   }
 
   /* ---------- Filtrage ---------- */
-
-  // Les attributs des .index-item (type, année, services, clients, nom) sont copiés sur le .dots-item
-  // et le .grid-item du même projet (data-index ou slug du lien = data-dots = data-grid).
-  const COPIED = ['index', 'type', 'year', 'services', 'client']
-  const dotBySlug = new Map(dots.map((d) => [slugify(d.dataset.dots), d]))
-  const gridBySlug = new Map(grids.map((g) => [slugify(g.dataset.grid), g]))
-  sortItems.forEach((item) => {
-    const linkSlug = item.querySelector('.index-link')?.getAttribute('href')?.split('/').filter(Boolean).pop()
-    const keys = [item.dataset.index, linkSlug].map(slugify).filter(Boolean)
-    const targets = [
-      keys.map((k) => dotBySlug.get(k)).find(Boolean),
-      keys.map((k) => gridBySlug.get(k)).find(Boolean),
-    ]
-    targets.forEach((target) => {
-      if (!target) return
-      COPIED.forEach((attr) => {
-        if (item.dataset[attr] && !target.dataset[attr]) target.dataset[attr] = item.dataset[attr]
-      })
-    })
-  })
 
   // Boutons [data-service] / [data-type] de .filters ; "all" = aucun filtre sur ce groupe.
   // Plusieurs filtres d'un même groupe : OU ; services ET type : les deux doivent correspondre.
@@ -491,23 +672,14 @@ export function init(container) {
   const filterLabel = filterButton?.querySelector('p')
   const filterLabelText = filterLabel?.textContent.trim() ?? ''
 
-  function matches(el) {
+  // Point ou ligne correspondant aux filtres en cours
+  function isActive(el) {
     const services = (el.dataset.services ?? '').split(',').map(slugify).filter(Boolean)
     const type = slugify(el.dataset.type)
     return (
       (!selected.service.size || services.some((s) => selected.service.has(s))) &&
       (!selected.type.size || selected.type.has(type))
     )
-  }
-
-  function isDotActive(dot) {
-    return matches(dot)
-  }
-  function isGridActive(grid) {
-    return matches(grid)
-  }
-  function isIndexActive(item) {
-    return matches(item)
   }
 
   function applyFilters({ animate = true } = {}) {
@@ -519,24 +691,11 @@ export function init(container) {
     const count = selected.service.size + selected.type.size
     if (filterLabel) filterLabel.textContent = count ? `${filterLabelText} (${count})` : filterLabelText
 
+    // Nuage : points écartés masqués ; l'index est retrié (lignes écartées à 0.1 en bas de liste) et les
+    // points restants reprennent l'ordre de la liste
     clear()
-
-    // Grille : actifs en haut (dans leur ordre d'origine), les autres en dessous à 0.1
-    const gridParent = grids[0]?.parentElement
-    if (gridParent) {
-      ;[...grids.filter(isGridActive), ...grids.filter((g) => !isGridActive(g))].forEach((g) => gridParent.append(g))
-    }
-    grids.forEach((grid) => styleGrid(grid, false))
-
-    // Index : même principe, en gardant le tri en cours
-    indexItems.forEach((item) => styleIndex(item, false))
-    sortIndex(caption)
-
-    // Nuage : points écartés masqués, les autres redistribués (disposition d'origine si aucun filtre)
-    const visible = dots.filter(isDotActive)
-    dots.forEach((dot) => (dot.style.display = isDotActive(dot) ? '' : 'none'))
-    points = visible.length === dots.length ? new Map(original) : new Map(scatter(visible.length).map((p, i) => [visible[i], p]))
-    layout({ animate })
+    dots.forEach((dot) => (dot.style.display = isActive(dot) ? '' : 'none'))
+    sortIndex(caption, false, animate)
   }
 
   function toggleFilter(button) {
@@ -546,96 +705,45 @@ export function init(container) {
     else if (selected[group].has(value)) selected[group].delete(value)
     else selected[group].add(value)
     applyFilters()
+    syncFilterUrl()
   }
 
-  /* ---------- Vue grid / list ---------- */
+  /* ---------- Filtres dans l'URL ---------- */
 
-  // [data-view="grid|list"] : .grid (display grid) ou .index (display flex). L'ancienne vue fait un
-  // fondu sortant avant display none, la nouvelle un fondu entrant ; retour en haut entre les deux.
-  // La vue est dans l'URL : ?view=list (pas de paramètre = grid).
-  const views = { grid: container.querySelector('.grid'), list: container.querySelector('.index') }
-  const DISPLAY = { grid: 'grid', list: 'flex' }
-  let view = new URLSearchParams(location.search).get('view') === 'list' ? 'list' : 'grid'
-  let viewTimer = null
-  // Durée totale du changement de vue (ms) : moitié fondu sortant, moitié fondu entrant
-  const VIEW_DURATION = 150
-  const VIEW_TRANSITION = `opacity ${VIEW_DURATION / 2}ms var(--easing)`
+  // ?filters=open (accordéon ouvert) & service=web,motion & type=film : mis à jour à chaque changement
+  // (replaceState : pas d'entrée d'historique, état de swup et #about conservés) et relus au chargement.
+  const URL_KEYS = { service: 'service', type: 'type' }
 
-  function syncViewButtons() {
-    document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === view))
-  }
-
-  function showView(key) {
-    const el = views[key]
-    if (!el) return
-    el.style.display = DISPLAY[key]
-    // Le nuage a pu être caché jusqu'ici (arrivée en vue list) : on le (re)place maintenant qu'il est visible
-    layout()
-    el.style.opacity = '0'
-    el.style.transition = VIEW_TRANSITION
-    el.getBoundingClientRect() // le navigateur prend en compte opacity 0 avant de lancer le fondu
-    el.style.opacity = '1'
-  }
-
-  function setView(key) {
-    if (!views[key] || key === view) return
-    const previous = views[view]
-    view = key
-    syncViewButtons()
-    clear()
-
+  function syncFilterUrl() {
     const url = new URL(location.href)
-    if (key === 'list') url.searchParams.set('view', 'list')
-    else url.searchParams.delete('view')
-    history.replaceState(history.state, '', url.href)
-
-    clearTimeout(viewTimer)
-    Object.values(views).forEach((el) => el && el !== previous && (el.style.display = 'none'))
-    if (previous) {
-      previous.style.transition = VIEW_TRANSITION
-      previous.style.opacity = '0'
+    if (filterOpen) url.searchParams.set('filters', 'open')
+    else url.searchParams.delete('filters')
+    for (const group in URL_KEYS) {
+      if (selected[group].size) url.searchParams.set(URL_KEYS[group], [...selected[group]].join(','))
+      else url.searchParams.delete(URL_KEYS[group])
     }
-    viewTimer = setTimeout(() => {
-      if (previous) previous.style.display = 'none'
-      scrollTo(0, 0)
-      showView(key)
-    }, previous ? VIEW_DURATION / 2 : 0)
+    if (url.href !== location.href) history.replaceState(history.state, '', url.href)
   }
 
-  // État initial, sans animation
-  Object.entries(views).forEach(([key, el]) => {
-    if (!el) return
-    el.style.display = key === view ? DISPLAY[key] : 'none'
-    el.style.opacity = key === view ? '1' : '0'
-  })
-  syncViewButtons()
-  applyFilters({ animate: false })
+  function readFilterUrl() {
+    const params = new URLSearchParams(location.search)
+    for (const group in URL_KEYS) {
+      // Seules les valeurs correspondant à un bouton existant sont reprises
+      const known = new Set(filterButtons.filter((b) => groupOf(b) === group).map(valueOf))
+      ;(params.get(URL_KEYS[group]) ?? '')
+        .split(',')
+        .map(slugify)
+        .filter((v) => v && v !== 'all' && known.has(v))
+        .forEach((v) => selected[group].add(v))
+    }
+    return params.get('filters') === 'open'
+  }
 
   /* ---------- Événements ---------- */
-
-  const onViewClick = (e) => {
-    const button = e.target.closest('[data-view]')
-    if (button) setView(button.dataset.view)
-  }
-  document.addEventListener('click', onViewClick)
-
-  const listeners = []
-  const on = (el, type, fn) => {
-    el.addEventListener(type, fn)
-    listeners.push(() => el.removeEventListener(type, fn))
-  }
 
   dots.forEach((dot) => {
     on(dot, 'pointerenter', () => highlight(dot.dataset.dots, { scroll: true }))
     on(dot, 'pointerleave', clear)
-
-    // Titres : visibles uniquement au survol du .dots-link
-    const link = dot.querySelector('.dots-link')
-    const titles = titlesOf(dot)
-    if (link && titles) {
-      on(link, 'pointerenter', () => (titles.style.opacity = '1'))
-      on(link, 'pointerleave', () => (titles.style.opacity = '0'))
-    }
   })
 
   indexItems.forEach((item) => {
@@ -643,9 +751,13 @@ export function init(container) {
     on(item, 'pointerleave', () => onIndexLeave(item))
   })
   on(window, 'pointermove', onIndexMove)
+  // Défilement sous une souris immobile : le nom du client suit toujours la souris
+  on(window, 'scroll', () => hoveredIndex && followLabel())
+
   container.querySelectorAll('.index-caption [data-caption]').forEach((button) => {
     on(button, 'click', () => sortIndex(button.dataset.caption, true))
   })
+
   if (filterButton) on(filterButton, 'click', () => setFilter(!filterOpen))
   filterButtons.forEach((button) => on(button, 'click', () => toggleFilter(button)))
   // Fermeture des filtres : clic en dehors (ni le bouton ni l'accordéon) ou Échap
@@ -656,28 +768,61 @@ export function init(container) {
     if (e.key === 'Escape' && filterOpen) setFilter(false)
   })
 
-  grids.forEach((grid) => {
-    on(grid, 'pointerenter', () => highlight(grid.dataset.grid, { title: true }))
-    on(grid, 'pointerleave', clear)
-  })
-
   let resizeFrame = null
-  const onResize = () => {
+  on(window, 'resize', () => {
     cancelAnimationFrame(resizeFrame)
     resizeFrame = requestAnimationFrame(() => {
       layout()
       if (wired) drawWires(wired)
     })
+  })
+
+  const openFromUrl = readFilterUrl()
+  applyFilters({ animate: false })
+  if (openFromUrl) setFilter(true)
+
+  /* ---------- Animation d'arrivée ---------- */
+
+  // Pas d'animation si le visiteur a demandé à réduire les animations (réglage du système)
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+  let introFade = null
+
+  if (!reduceMotion) {
+    // Cercles : déjà en rotation au premier affichage (sens opposés), ils ralentissent jusqu'à leur place
+    if (LAYOUT === 'rings' && INTRO_SPIN) {
+      spin.inner = -INTRO_SPIN
+      spin.outer = INTRO_SPIN
+      layout()
+      introSpin = gsap.to(spin, {
+        inner: 0,
+        outer: 0,
+        duration: INTRO_DURATION,
+        ease: INTRO_EASE,
+        onUpdate: () => {
+          layout()
+          if (wired) drawWires(wired)
+        },
+        onComplete: () => (introSpin = null),
+      })
+    }
+
+    // Index : les lignes apparaissent une à une, dans l'ordre de la liste. Le fondu passe par
+    // filter: opacity() pour ne pas entrer en conflit avec l'opacité des survols / filtres.
+    const rows = [...(indexList?.querySelectorAll('.index-item') ?? [])]
+    introFade = gsap.fromTo(
+      rows,
+      { filter: 'opacity(0)' },
+      { filter: 'opacity(1)', duration: INDEX_FADE, stagger: INDEX_STAGGER, ease: 'none', clearProps: 'filter' }
+    )
   }
-  addEventListener('resize', onResize)
 
   cleanup = () => {
-    clearTimeout(viewTimer)
-    document.removeEventListener('click', onViewClick)
+    introSpin?.kill()
+    introFade?.kill()
     cancelAnimationFrame(resizeFrame)
-    removeEventListener('resize', onResize)
     listeners.forEach((off) => off())
     svg.remove()
+    ringLines.remove()
   }
 }
 
