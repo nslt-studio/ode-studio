@@ -6,6 +6,7 @@
 import { gsap } from 'gsap'
 import { Draggable } from 'gsap/Draggable'
 import { InertiaPlugin } from 'gsap/InertiaPlugin'
+import { onReady } from '../loader.js'
 import { playClick } from '../sound.js'
 
 gsap.registerPlugin(Draggable, InertiaPlugin)
@@ -81,7 +82,8 @@ export function init(container) {
   }
 
   // About ouvert : le slider ne réagit plus à la molette / au clavier
-  const locked = () => document.documentElement.classList.contains('about-open')
+  // About ouvert ou loader affiché : le slider ne réagit plus
+  const locked = () => /\b(about-open|is-loading)\b/.test(document.documentElement.className)
 
   // Molette / trackpad (horizontal ou vertical) : le slider suit, puis s'aimante quand ça s'arrête
   let wheelTarget = 0
@@ -148,8 +150,10 @@ export function init(container) {
     introFade = gsap.fromTo(
       items,
       { filter: 'opacity(0)' },
-      { filter: 'opacity(1)', duration: ITEM_FADE, stagger: ITEM_STAGGER, ease: 'none', clearProps: 'filter' }
+      { filter: 'opacity(1)', duration: ITEM_FADE, stagger: ITEM_STAGGER, ease: 'none', clearProps: 'filter', paused: true }
     )
+    // Démarre à la fin du loader (ou tout de suite s'il n'y en a pas / plus)
+    onReady(() => introFade?.play())
   }
 
   cleanup = () => {

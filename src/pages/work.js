@@ -3,6 +3,7 @@
 // partageant un client, les relie par des fils et estompe le reste de la liste. Tri et filtres sur la liste.
 
 import { gsap } from 'gsap'
+import { onReady } from '../loader.js'
 
 // Rayon du nuage, en fraction de la moitié du plus petit côté de .dots-list
 const CLOUD = 0.5
@@ -803,6 +804,7 @@ export function init(container) {
           if (wired) drawWires(wired)
         },
         onComplete: () => (introSpin = null),
+        paused: true,
       })
     }
 
@@ -812,8 +814,13 @@ export function init(container) {
     introFade = gsap.fromTo(
       rows,
       { filter: 'opacity(0)' },
-      { filter: 'opacity(1)', duration: INDEX_FADE, stagger: INDEX_STAGGER, ease: 'none', clearProps: 'filter' }
+      { filter: 'opacity(1)', duration: INDEX_FADE, stagger: INDEX_STAGGER, ease: 'none', clearProps: 'filter', paused: true }
     )
+    // Démarre à la fin du loader (ou tout de suite s'il n'y en a pas / plus)
+    onReady(() => {
+      introSpin?.play()
+      introFade?.play()
+    })
   }
 
   cleanup = () => {

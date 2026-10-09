@@ -6,6 +6,7 @@
 import { gsap } from 'gsap'
 import { Draggable } from 'gsap/Draggable'
 import { InertiaPlugin } from 'gsap/InertiaPlugin'
+import { onReady } from '../loader.js'
 import { playClick } from '../sound.js'
 
 gsap.registerPlugin(Draggable, InertiaPlugin)
@@ -163,7 +164,8 @@ export function init(container) {
   let wheelTarget = 0
   let wheelTimer = null
   // About ouvert : la roue ne réagit plus
-  const locked = () => document.documentElement.classList.contains('about-open')
+  // About ouvert ou loader affiché : la roue ne réagit plus
+  const locked = () => /\b(about-open|is-loading)\b/.test(document.documentElement.className)
 
   function onWheel(e) {
     if (locked()) return
@@ -232,12 +234,15 @@ export function init(container) {
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
   if (INTRO_STEPS && !reduceMotion) {
     gsap.set(proxy, { y: INTRO_STEPS * DRAG })
-    gsap.to(proxy, {
+    // Démarre à la fin du loader (ou tout de suite s'il n'y en a pas / plus)
+    const intro = gsap.to(proxy, {
       y: 0,
       duration: INTRO_DURATION,
       ease: INTRO_EASE,
+      paused: true,
       onUpdate: render,
     })
+    onReady(() => intro.play())
   }
   render()
 

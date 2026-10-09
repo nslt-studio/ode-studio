@@ -1,5 +1,6 @@
 // Journal details : apparition des .media-item un à un à l'arrivée sur la page.
 import { gsap } from 'gsap'
+import { onReady } from '../loader.js'
 
 // Durée (s) du fondu de chaque média et décalage (s) entre deux médias
 const MEDIA_FADE = 0.5
@@ -16,8 +17,10 @@ export function init(container) {
   const fade = gsap.fromTo(
     medias,
     { filter: 'opacity(0)' },
-    { filter: 'opacity(1)', duration: MEDIA_FADE, stagger: MEDIA_STAGGER, ease: 'none', clearProps: 'filter' }
+    { filter: 'opacity(1)', duration: MEDIA_FADE, stagger: MEDIA_STAGGER, ease: 'none', clearProps: 'filter', paused: true }
   )
+  // Démarre à la fin du loader (ou tout de suite s'il n'y en a pas / plus)
+  onReady(() => fade.play())
 
   cleanup = () => fade.kill()
 }

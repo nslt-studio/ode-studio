@@ -1,3 +1,4 @@
+import { initLoader } from './loader.js'
 import { initNav, updateHeadline } from './nav.js'
 import { initSwup } from './swup.js'
 import { initTheme } from './theme.js'
@@ -59,6 +60,7 @@ if (window.__odeStudio) {
 } else {
   window.__odeStudio = true
   initTheme()
+  initLoader()
   initNav()
   initSwup({
     // Dès le clic : on devine la page d'arrivée d'après l'URL ; corrigé par data-swup à l'arrivée
