@@ -33,6 +33,8 @@ const ORBIT = 12
 // Sortie : fondu du contenu (tracés, textes, carré, rond), puis fondu du fond du loader
 const EXIT_CONTENT = 0.3
 const EXIT_LOADER = 0.3
+// Pause entre les deux (le fond reste seul à l'écran)
+const EXIT_PAUSE = 0.3
 
 let resolveReady
 const ready = new Promise((resolve) => (resolveReady = resolve))
@@ -173,8 +175,8 @@ export function initLoader() {
     e?.preventDefault()
     intro.kill()
 
-    // 1. fondu du contenu ; 2. fondu du fond du loader, pendant lequel l'animation d'arrivée de la page
-    // démarre ; 3. le loader est retiré
+    // 1. fondu du contenu ; 2. pause EXIT_PAUSE ; 3. fondu du fond du loader, pendant lequel l'animation
+    // d'arrivée de la page démarre ; 4. le loader est retiré
     gsap
       .timeline({ defaults: { ease } })
       .to([svg, ...texts, ...orbiters], { opacity: 0, duration: EXIT_CONTENT })
@@ -182,7 +184,7 @@ export function initLoader() {
         html.classList.remove('is-loading')
         html.style.overflow = ''
         resolveReady()
-      })
+      }, `+=${EXIT_PAUSE}`)
       .to(loader, { opacity: 0, duration: EXIT_LOADER })
       .add(() => {
         spin.kill()
