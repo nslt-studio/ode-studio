@@ -1,5 +1,6 @@
 // Comportements globaux de la nav, initialisés une seule fois (la nav est hors de #swup).
 import { initClock, startClock, stopClock } from './clock.js'
+import { initGraph, setGraphOpen } from './graph.js'
 
 // Bascule w--current sur les liens pointant vers la page de destination
 export function setCurrentLinks(url) {
@@ -42,7 +43,11 @@ let aboutOpen = false
 export function setAbout(open) {
   aboutOpen = open
 
-  document.querySelectorAll('#aboutButton').forEach((b) => b.setAttribute('aria-expanded', open))
+  // Libellé du bouton : "Close" quand about est ouvert, "About" sinon
+  document.querySelectorAll('#aboutButton').forEach((b) => {
+    b.setAttribute('aria-expanded', open)
+    b.textContent = open ? 'Close' : 'About'
+  })
 
   const accordion = document.querySelector('[data-accordion="about"]')
   const inner = accordion?.querySelector('.accordion-inner')
@@ -51,9 +56,10 @@ export function setAbout(open) {
     accordion.style.maxHeight = open && inner ? `${inner.scrollHeight}px` : '0px'
   }
 
-  // Horloge : apparaît / disparaît avec l'accordéon ; elle ne calcule rien quand elle est cachée
-  document.querySelector('.nav .clock')?.classList.toggle('visible', open)
+  // .nav-right (horloge + graph) : apparaît / disparaît avec l'accordéon ; rien ne tourne quand il est caché
+  document.querySelector('.nav-right')?.classList.toggle('visible', open)
   open ? startClock() : stopClock()
+  setGraphOpen(open)
 
   const wrapper = document.querySelector('.main-wrapper')
   if (wrapper) {
@@ -85,8 +91,65 @@ function initAboutButton() {
   })
 }
 
+// .nav-selection : chaque bouton [data-select] fait défiler .nav-right jusqu'à sa section.
+// Le bouton de la section affichée prend .active, y compris quand on fait défiler à la main.
+const SECTIONS = { top: '.graph', center: '.headline', bottom: '.clock' }
+function initNavSelection() {
+  const navRight = document.querySelector('.nav-right')
+  const buttons = [...(navRight?.querySelectorAll('[data-select]') ?? [])]
+  // Bouton -> section de .nav-right ; les sections absentes de la page sont ignorées
+  const targets = Object.fromEntries(
+    Object.entries(SECTIONS)
+      .map(([key, selector]) => [key, navRight?.querySelector(selector)])
+      .filter(([, el]) => el)
+  )
+  const keys = Object.keys(targets)
+  if (!buttons.length || !keys.length) return
+
+  // Conteneur qui défile (scroll snap) : le premier parent des sections en overflow auto / scroll
+  let scroller = targets[keys[0]].parentElement
+  while (scroller && scroller !== navRight && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+    scroller = scroller.parentElement
+  }
+  if (!scroller) return
+
+  const offsetIn = (el) => el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+
+  const setActive = (key) => buttons.forEach((b) => b.classList.toggle('active', b.dataset.select === key))
+
+  // Pendant le défilement lancé par un clic, le bouton cliqué reste actif (pas d'aller-retour de classe)
+  let clicked = null
+  let clickTimer = null
+
+  buttons.forEach((button) =>
+    button.addEventListener('click', () => {
+      const key = button.dataset.select
+      if (!targets[key]) return
+      setActive(key)
+      clicked = key
+      clearTimeout(clickTimer)
+      clickTimer = setTimeout(() => (clicked = null), 1000)
+      scroller.scrollTo({ top: offsetIn(targets[key]), behavior: 'smooth' })
+    })
+  )
+
+  // Défilement à la main : la section la plus proche du haut du conteneur devient active
+  scroller.addEventListener(
+    'scroll',
+    () => {
+      if (clicked) return
+      const top = scroller.scrollTop
+      const distance = (key) => Math.abs(offsetIn(targets[key]) - top)
+      setActive(keys.reduce((best, key) => (distance(key) < distance(best) ? key : best)))
+    },
+    { passive: true }
+  )
+}
+
 export function initNav() {
   initAboutButton()
   initClock()
+  initGraph()
+  initNavSelection()
   if (location.hash === '#about') setAbout(true)
 }

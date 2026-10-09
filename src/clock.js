@@ -1,6 +1,8 @@
 // Horloge de la nav : aiguilles (#hour, #minute, #second) + heures LA / NYC dans les boutons.
 // Elle ne tourne que lorsque about est ouvert (startClock / stopClock appelés par nav.js).
 
+import { LINE_OPACITY, LINE_WIDTH } from './graph.js'
+
 const ZONES = {
   la: 'America/Los_Angeles',
   nyc: 'America/New_York',
@@ -9,6 +11,9 @@ const ZONES = {
 // Rayon de chaque aiguille, en fraction du rayon de .clock-inner (moitié de son plus petit côté).
 // 1 = bord de .clock-inner. Surchargeable dans Webflow avec l'attribut data-radius sur la .hand (ex. 0.8).
 const RADIUS = { hour: 0.6, minute: 0.7, second: 1 }
+// Diamètre du cercle tracé au centre de l'horloge, en fraction du plus petit côté de .clock-inner
+// (0.15 ≈ 100px sur un écran 1440x900) ; même trait que les cercles du graph
+const CENTER_SIZE = 0.65
 // Espace (px) entre l'icône et le début du texte
 const GAP = 8
 // Durée de la transition au changement de ville (ms), easing = var(--easing)
@@ -149,6 +154,8 @@ function layout() {
   const size = Math.min(rect.width, rect.height) || Math.min(innerWidth, innerHeight) * 0.8
   const outer = size / 2
 
+  if (center) center.style.width = center.style.height = `${size * CENTER_SIZE}px`
+
   inner.querySelectorAll('.hand').forEach((hand) => {
     if (!hand._items) return
     const radius = outer * (+hand.dataset.radius || RADIUS[hand.id] || 1)
@@ -283,7 +290,42 @@ export function stopClock() {
   removeEventListener('resize', onResize)
 }
 
+// Petit cercle au centre de .clock-inner, même épaisseur et même opacité que les cercles du graph
+// (taille recalculée dans layout(), donc au resize)
+let center = null
+function drawCenter() {
+  const inner = document.querySelector('.clock .clock-inner')
+  if (!inner) return
+  if (getComputedStyle(inner).position === 'static') inner.style.position = 'relative'
+  const svgNS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(svgNS, 'svg')
+  // viewBox 0 0 100 100 : le cercle suit la taille du svg, le trait reste fin (non-scaling-stroke)
+  svg.setAttribute('viewBox', '0 0 100 100')
+  Object.assign(svg.style, {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    translate: '-50% -50%',
+    overflow: 'visible',
+    pointerEvents: 'none',
+    opacity: String(LINE_OPACITY),
+  })
+  const circle = document.createElementNS(svgNS, 'circle')
+  circle.setAttribute('cx', 50)
+  circle.setAttribute('cy', 50)
+  circle.setAttribute('r', 50)
+  circle.setAttribute('fill', 'none')
+  circle.setAttribute('stroke', 'currentColor')
+  circle.setAttribute('stroke-width', String(LINE_WIDTH))
+  circle.setAttribute('vector-effect', 'non-scaling-stroke')
+  svg.append(circle)
+  inner.prepend(svg)
+  center = svg
+  layout()
+}
+
 export async function initClock() {
+  drawCenter()
   // Les largeurs de lettres dépendent de la police : on attend qu'elle soit chargée
   await document.fonts.ready
   document.querySelectorAll('.clock .hand').forEach(buildHand)

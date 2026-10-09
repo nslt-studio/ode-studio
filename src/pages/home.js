@@ -1,6 +1,8 @@
 // Home : roue des .selected-item dans .selected-list.
-// Les items sont posés sur un grand cercle dont le centre est à droite de l'écran : l'item actif est
-// pile au centre, le précédent et le suivant apparaissent en haut et en bas.
+// Les items sont posés sur un cercle dont le centre est à droite de l'écran : l'item actif est pile au
+// centre, les voisins apparaissent au-dessus et en dessous, inclinés.
+// Chaque item a un .selected-media (plein écran, opacity 0 dans Webflow) : celui de l'item actif passe
+// à 1, sans transition. Les vidéos ne tournent que pour l'item actif.
 // Glisser (souris / tactile) avec inertie, molette / trackpad, flèches du clavier, clic sur un voisin ;
 // la roue finit toujours aimantée sur un item.
 import { gsap } from 'gsap'
@@ -12,19 +14,18 @@ import { playClick } from '../sound.js'
 gsap.registerPlugin(Draggable, InertiaPlugin)
 
 // Angle (deg) entre deux items sur la roue
-const ANGLE = 45
-// Échelle de l'item pile au centre, qui redescend linéairement à 1 à un cran du centre
-const ACTIVE_SCALE = 1.5
-// Opacité des items non actifs (l'actif est à 1, dès qu'il devient actif, en 300ms var(--easing))
-const INACTIVE_OPACITY = 0.5
+const ANGLE = 20
+// Opacité selon l'écart avec l'item actif : actif, voisins directs, voisins suivants (au-delà : le
+// dernier palier). Changement en 300ms var(--easing) à chaque nouvel item actif.
+const OPACITIES = [1, 0.5, 0.1]
 // Rayon de la roue, en fraction de la hauteur d'écran
-const RADIUS = 0.85
+const RADIUS = 0.75
 // Distance de glisser (px) pour passer d'un item au suivant
 const DRAG = 400
 // Espace minimum (px) entre deux items, quelle que soit la taille de la fenêtre
 const MIN_GAP = 40
 // Nombre d'items rendus de chaque côté de l'actif (les autres sont masqués)
-const VISIBLE = 1.5
+const VISIBLE = 2.5
 // Animation d'arrivée : la roue est déjà lancée à pleine vitesse quand la page apparaît, et l'on ne voit
 // que sa fin (décélération jusqu'au premier item). INTRO_STEPS : items parcourus (0 = pas d'animation) ;
 // INTRO_DURATION : durée (s) ; INTRO_EASE : courbe, très rapide au début pour donner l'impression d'un
@@ -41,7 +42,29 @@ export function init(container) {
   if (!items.length) return
 
   const n = items.length
-  const medias = items.map((item) => item.querySelector('.selected-media'))
+
+  // Médias sortis des items : un élément en position: fixed dans un parent transformé (les items
+  // tournent et se déplacent) suivrait ce parent au lieu de rester calé sur l'écran. Ils vont dans un
+  // conteneur sans transformation, en tête de la page ; leur classe et leurs styles Webflow restent.
+  const mediaLayer = document.createElement('div')
+  mediaLayer.className = 'selected-medias'
+  // Empilement propre (z-index 0) : le z-index des médias reste contenu ici, la roue passe au-dessus
+  Object.assign(mediaLayer.style, { position: 'relative', zIndex: '0' })
+  const medias = items.map((item) => {
+    const media = item.querySelector('.selected-media')
+    if (media) {
+      media.style.transition = 'none'
+      mediaLayer.append(media)
+    }
+    return media
+  })
+  container.prepend(mediaLayer)
+  // Vidéos : lecture pilotée par la roue (autoplay coupé, sinon toutes tourneraient en arrière-plan)
+  const videos = medias.map((media) => [...(media?.querySelectorAll('video') ?? [])])
+  videos.flat().forEach((video) => {
+    video.autoplay = false
+    video.pause()
+  })
   // La roue est pilotée par la position y d'un élément fantôme (jamais affiché) : Draggable, l'inertie
   // et les tweens agissent tous sur cette seule valeur, render() en déduit la position des items.
   const proxy = document.createElement('div')
@@ -69,32 +92,7 @@ export function init(container) {
     })
     // Pas de "fantôme" d'image natif pendant le glisser
     item.querySelectorAll('img').forEach((img) => (img.draggable = false))
-    // Clients de l'item regroupés dans son data-client : "Client A, Client B"
-    item.dataset.client = [...item.querySelectorAll('[data-client]')]
-      .map((el) => (el.dataset.client || el.textContent).trim())
-      .filter(Boolean)
-      .join(', ')
   })
-
-  // Textes de l'item actif (cherchés dans la page, puis dans tout le document s'ils sont hors de #swup)
-  const find = (attr) => container.querySelector(`[${attr}]`) || document.querySelector(`[${attr}]`)
-  const titles = {
-    name: find('titles-name'),
-    year: find('titles-year'),
-    client: find('titles-clients'),
-  }
-
-  // Survol de l'item actif (seulement lui) : les .triangle-left de la page pivotent de 180°.
-  // Détection par la position de la souris (elementsFromPoint) : fonctionne même si un élément
-  // passe par-dessus l'item, et quand la roue tourne sous une souris immobile.
-  const triangles = [...container.querySelectorAll('.triangle-left')]
-  if (!triangles.length) console.warn('[home] .triangle-left introuvable dans la page')
-  triangles.forEach((t) => (t.style.transition = 'rotate 300ms var(--easing)'))
-  let pointer = null
-  function updateCursor() {
-    const over = pointer && document.elementsFromPoint(pointer.x, pointer.y).includes(items[active])
-    triangles.forEach((t) => (t.style.rotate = over ? '180deg' : ''))
-  }
 
   function render() {
     const p = progress()
@@ -113,11 +111,6 @@ export function init(container) {
       // Rotation d'une roue rigide : l'item tourne exactement du même angle que sa position sur la roue
       // (centre à droite : descendre sur la roue = tourner dans le sens inverse des aiguilles d'une montre)
       item.style.rotate = `${-rel * ANGLE}deg`
-      // 1 pile au centre -> 0 à un cran : sert à l'échelle du média
-      const focus = Math.max(0, 1 - Math.abs(rel))
-      // L'échelle s'applique au média de l'item, pas à l'item entier
-      const media = medias[i]
-      if (media) media.style.scale = 1 + (ACTIVE_SCALE - 1) * focus
     })
 
     const index = ((Math.round(p) % n) + n) % n
@@ -127,13 +120,16 @@ export function init(container) {
       active = index
       items.forEach((item, i) => {
         item.classList.toggle('active', i === index)
-        item.style.opacity = i === index ? 1 : INACTIVE_OPACITY
+        const gap = Math.abs(n > 1 ? Math.round(wrap(i - index)) : 0)
+        item.style.opacity = OPACITIES[Math.min(gap, OPACITIES.length - 1)]
       })
-      for (const key in titles) {
-        if (titles[key]) titles[key].textContent = items[index].dataset[key] ?? ''
-      }
-      // L'item survolé peut devenir (ou cesser d'être) actif quand la roue tourne sous la souris
-      updateCursor()
+      // Média de l'item actif visible (sans transition) ; seules ses vidéos tournent
+      medias.forEach((media, i) => {
+        if (media) media.style.opacity = i === index ? '1' : ''
+      })
+      videos.forEach((list, i) =>
+        list.forEach((video) => (i === index ? video.play().catch(() => {}) : video.pause()))
+      )
       container.dispatchEvent(new CustomEvent('selected:change', { detail: { index, item: items[index] } }))
     }
   }
@@ -207,23 +203,10 @@ export function init(container) {
     })
   }
 
-  let pointerFrame = null
-  function onPointerMove(e) {
-    pointer = { x: e.clientX, y: e.clientY }
-    cancelAnimationFrame(pointerFrame)
-    pointerFrame = requestAnimationFrame(updateCursor)
-  }
-  function onPointerLeave() {
-    pointer = null
-    updateCursor()
-  }
-
   addEventListener('wheel', onWheel, { passive: false })
   addEventListener('keydown', onKey)
   addEventListener('resize', onResize)
   list.addEventListener('click', onClick, true)
-  addEventListener('pointermove', onPointerMove)
-  document.documentElement.addEventListener('pointerleave', onPointerLeave)
 
   measure()
 
@@ -247,6 +230,7 @@ export function init(container) {
   render()
 
   cleanup = () => {
+    videos.flat().forEach((video) => video.pause())
     cancelAnimationFrame(resizeFrame)
     draggable.kill()
     gsap.killTweensOf(proxy)
@@ -255,9 +239,6 @@ export function init(container) {
     removeEventListener('keydown', onKey)
     removeEventListener('resize', onResize)
     list.removeEventListener('click', onClick, true)
-    cancelAnimationFrame(pointerFrame)
-    removeEventListener('pointermove', onPointerMove)
-    document.documentElement.removeEventListener('pointerleave', onPointerLeave)
   }
 }
 
