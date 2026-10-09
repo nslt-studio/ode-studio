@@ -2810,12 +2810,21 @@ function dc() {
 		"circle",
 		"ellipse",
 		"ellipse"
-	].map((e, t) => {
-		let n = document.createElementNS(c, e);
-		return n.setAttribute("fill", "none"), n.setAttribute("stroke", "var(--white)"), n.setAttribute("stroke-width", String(Zs)), n.setAttribute("vector-effect", "non-scaling-stroke"), n.setAttribute("pathLength", "1"), n.style.strokeDasharray = "1", n.style.strokeDashoffset = t % 2 ? "-1" : "1", l.append(n), n;
-	});
+	].map((e) => {
+		let t = document.createElementNS(c, e);
+		return t.setAttribute("fill", "none"), t.setAttribute("stroke", "var(--white)"), t.setAttribute("stroke-width", String(Zs)), t.setAttribute("vector-effect", "non-scaling-stroke"), l.append(t), t;
+	}), d = u.map(() => ({
+		p: 0,
+		length: 0
+	}));
+	function f() {
+		d.forEach(({ p: e, length: t }, n) => {
+			let r = t + 1;
+			u[n].style.strokeDasharray = `${r} ${r}`, u[n].style.strokeDashoffset = String(r * (1 - e));
+		});
+	}
 	e.prepend(l);
-	let d = { a: 0 }, f = null, p = (e, t, n, r = 0) => {
+	let p = { a: 0 }, m = null, h = (e, t, n, r = 0) => {
 		e && (Object.assign(e.style, {
 			position: "absolute",
 			left: "0",
@@ -2823,61 +2832,62 @@ function dc() {
 			margin: "0"
 		}), e.style.transform = `translate(${t}px, ${n}px) translate(-50%, -50%) rotate(${r}deg)`);
 	};
-	function m() {
-		if (!f) return;
-		let { cx: e, cy: t, r: n } = f, r = (e, r) => {
+	function g() {
+		if (!m) return;
+		let { cx: e, cy: t, r: n } = m, r = (e, r) => {
 			let i = r * Math.PI / 180;
 			return [e + n * Math.cos(i), t + n * Math.sin(i)];
 		};
-		p(o, ...r(e - n / 2, 180 + d.a)), p(s, ...r(e + n / 2, 0 + d.a));
+		h(o, ...r(e - n / 2, 180 + p.a)), h(s, ...r(e + n / 2, 0 + p.a));
 	}
-	function h() {
+	function _() {
 		let e = innerWidth / 2, t = innerHeight / 2, a = Math.min(innerWidth * qs, innerHeight * Js);
-		f = {
+		m = {
 			cx: e,
 			cy: t,
 			r: a
 		}, [e - a / 2, e + a / 2].forEach((e, n) => {
-			let r = u[n];
-			r.setAttribute("cx", e), r.setAttribute("cy", t), r.setAttribute("r", a), r.setAttribute("transform", `rotate(-90 ${e} ${t})`);
-			let i = u[n + 2];
-			i.setAttribute("cx", e), i.setAttribute("cy", t), i.setAttribute("rx", a), i.setAttribute("ry", a * Ys);
-		}), p(n, e, t), p(r, e - a, t, -90), p(i, e + a, t, -90), m();
+			let r = n === 1, i = (n) => `translate(${e} ${t}) ${n} translate(${-e} ${-t})`, o = a * Ys, s = u[n];
+			s.setAttribute("cx", e), s.setAttribute("cy", t), s.setAttribute("r", a), s.setAttribute("transform", i(r ? "scale(-1 1) rotate(-90)" : "rotate(-90)")), d[n].length = 2 * Math.PI * a;
+			let c = u[n + 2];
+			c.setAttribute("cx", e), c.setAttribute("cy", t), c.setAttribute("rx", a), c.setAttribute("ry", o), c.setAttribute("transform", r ? i("scale(1 -1)") : ""), d[n + 2].length = Math.PI * (3 * (a + o) - Math.sqrt((3 * a + o) * (a + 3 * o)));
+		}), f(), h(n, e, t), h(r, e - a, t, -90), h(i, e + a, t, -90), g();
 	}
-	h(), addEventListener("resize", h);
-	let g = [
+	_(), addEventListener("resize", _);
+	let v = [
 		r,
 		i,
 		n
-	].filter(Boolean), _ = [o, s].filter(Boolean), v = [
-		...g,
-		..._,
+	].filter(Boolean), y = [o, s].filter(Boolean), b = [
+		...v,
+		...y,
 		a
 	].filter(Boolean);
-	Z.set(v, { opacity: 0 });
-	let y = Ks(), b = Z.timeline({ defaults: { ease: y } });
-	b.to(g, {
+	Z.set(b, { opacity: 0 });
+	let x = Ks(), S = Z.timeline({ defaults: { ease: x } });
+	S.to(v, {
 		opacity: 1,
 		duration: Qs
-	}, 0).to(u, {
-		strokeDashoffset: 0,
+	}, 0).to(d, {
+		p: 1,
 		duration: $s,
-		stagger: ec
-	}, tc).to([..._, a].filter(Boolean), {
+		stagger: ec,
+		onUpdate: f
+	}, tc).to([...y, a].filter(Boolean), {
 		opacity: 1,
 		duration: nc
 	}, rc);
-	let x = Z.to(d, {
+	let C = Z.to(p, {
 		a: 360,
 		duration: ic,
 		ease: "none",
 		repeat: -1,
-		onUpdate: m
+		onUpdate: g
 	});
-	matchMedia("(prefers-reduced-motion: reduce)").matches && (b.progress(1), x.pause());
-	let S = !1;
-	function C(n) {
-		S || (S = !0, n?.preventDefault(), b.kill(), Z.timeline({ defaults: { ease: y } }).to([l, ...v], {
+	matchMedia("(prefers-reduced-motion: reduce)").matches && (S.progress(1), C.pause());
+	let w = !1;
+	function T(n) {
+		w || (w = !0, n?.preventDefault(), S.kill(), Z.timeline({ defaults: { ease: x } }).to([l, ...b], {
 			opacity: 0,
 			duration: ac
 		}).add(() => {
@@ -2886,11 +2896,11 @@ function dc() {
 			opacity: 0,
 			duration: oc
 		}).add(() => {
-			x.kill(), removeEventListener("resize", h), removeEventListener("keydown", w), e.remove();
+			C.kill(), removeEventListener("resize", _), removeEventListener("keydown", E), e.remove();
 		}));
 	}
-	let w = (e) => e.key === "Enter" && C(e);
-	a?.addEventListener("click", C), addEventListener("keydown", w);
+	let E = (e) => e.key === "Enter" && T(e);
+	a?.addEventListener("click", T), addEventListener("keydown", E);
 }
 //#endregion
 //#region src/sound.js

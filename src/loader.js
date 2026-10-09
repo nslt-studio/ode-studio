@@ -75,21 +75,29 @@ export function initLoader() {
     pointerEvents: 'none',
     opacity: String(LINE_OPACITY),
   })
-  // Cercle gauche, cercle droit, ellipse gauche, ellipse droite. pathLength = 1 : le tracé s'anime
-  // de 0 à 1 quelle que soit la taille (stroke-dashoffset 1 -> 0).
-  const shapes = ['circle', 'circle', 'ellipse', 'ellipse'].map((tag, i) => {
+  // Cercle gauche, cercle droit, ellipse gauche, ellipse droite. Le tracé s'anime via draws[i].p
+  // (0 -> 1), converti en stroke-dasharray / dashoffset en px d'après la longueur réelle de la forme
+  // (pas de pathLength ni de dashoffset négatif : Safari / iOS les gèrent mal).
+  const shapes = ['circle', 'circle', 'ellipse', 'ellipse'].map((tag) => {
     const shape = document.createElementNS(svgNS, tag)
     shape.setAttribute('fill', 'none')
     shape.setAttribute('stroke', 'var(--white)')
     shape.setAttribute('stroke-width', String(LINE_WIDTH))
     shape.setAttribute('vector-effect', 'non-scaling-stroke')
-    shape.setAttribute('pathLength', '1')
-    shape.style.strokeDasharray = '1'
-    // 1 -> 0 : tracé dans le sens horaire ; -1 -> 0 : sens inverse
-    shape.style.strokeDashoffset = ALTERNATE && i % 2 ? '-1' : '1'
     svg.append(shape)
     return shape
   })
+  // Progression du tracé (0 -> 1) et longueur (px) de chaque forme
+  const draws = shapes.map(() => ({ p: 0, length: 0 }))
+
+  function applyDraw() {
+    draws.forEach(({ p, length }, i) => {
+      // +1 px : aucun point visible au départ, aucune jointure visible à la fin
+      const dash = length + 1
+      shapes[i].style.strokeDasharray = `${dash} ${dash}`
+      shapes[i].style.strokeDashoffset = String(dash * (1 - p))
+    })
+  }
   loader.prepend(svg)
 
   /* ---------- Placement ---------- */
@@ -122,20 +130,30 @@ export function initLoader() {
     const r = Math.min(innerWidth * RADIUS_W, innerHeight * RADIUS_H)
     geo = { cx, cy, r }
 
-    // Cercles tournés de -90° : leur tracé démarre en haut (les ellipses démarrent sur leur côté)
+    // Cercles tournés de -90° : leur tracé démarre en haut (les ellipses démarrent sur leur côté).
+    // Formes de droite avec ALTERNATE : retournées en miroir (même point de départ, sens inverse).
     ;[cx - r / 2, cx + r / 2].forEach((x, i) => {
+      const reverse = ALTERNATE && i === 1
+      const around = (t) => `translate(${x} ${cy}) ${t} translate(${-x} ${-cy})`
+      const ry = r * ELLIPSE_RY
+
       const circle = shapes[i]
       circle.setAttribute('cx', x)
       circle.setAttribute('cy', cy)
       circle.setAttribute('r', r)
-      circle.setAttribute('transform', `rotate(-90 ${x} ${cy})`)
+      circle.setAttribute('transform', around(reverse ? 'scale(-1 1) rotate(-90)' : 'rotate(-90)'))
+      draws[i].length = 2 * Math.PI * r
 
       const ellipse = shapes[i + 2]
       ellipse.setAttribute('cx', x)
       ellipse.setAttribute('cy', cy)
       ellipse.setAttribute('rx', r)
-      ellipse.setAttribute('ry', r * ELLIPSE_RY)
+      ellipse.setAttribute('ry', ry)
+      ellipse.setAttribute('transform', reverse ? around('scale(1 -1)') : '')
+      // Périmètre de l'ellipse (approximation de Ramanujan)
+      draws[i + 2].length = Math.PI * (3 * (r + ry) - Math.sqrt((3 * r + ry) * (r + 3 * ry)))
     })
+    applyDraw()
 
     place(logo, cx, cy)
     place(left, cx - r, cy, -90)
@@ -159,7 +177,7 @@ export function initLoader() {
   const intro = gsap.timeline({ defaults: { ease } })
   intro
     .to(texts, { opacity: 1, duration: TEXT_FADE }, 0)
-    .to(shapes, { strokeDashoffset: 0, duration: DRAW, stagger: DRAW_STAGGER }, DRAW_START)
+    .to(draws, { p: 1, duration: DRAW, stagger: DRAW_STAGGER, onUpdate: applyDraw }, DRAW_START)
     .to([...orbiters, enter].filter(Boolean), { opacity: 1, duration: ORBITERS_FADE }, ORBITERS_START)
 
   const spin = gsap.to(orbit, { a: 360, duration: ORBIT, ease: 'none', repeat: -1, onUpdate: placeOrbiters })
